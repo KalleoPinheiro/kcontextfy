@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KContextify</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1 class="title">KContextify</h1>
+      <span class="badge">v0.1.0</span>
+    </header>
+
+    <section id="status-section" class="section">
+      <div id="status" class="status idle">
+        <span class="status-icon">○</span>
+        <span class="status-text">Ready to extract</span>
+      </div>
+    </section>
+
+    <section class="section">
+      <button id="extract-btn" class="btn btn-primary">
+        <span class="btn-icon">⟳</span>
+        Extract Page
+      </button>
+    </section>
+
+    <section id="result-section" class="section hidden">
+      <div class="result-header">
+        <h2 id="result-title" class="result-title"></h2>
+        <span id="result-type" class="result-type"></span>
+      </div>
+      <div id="result-preview" class="result-preview"></div>
+      <div class="result-actions">
+        <button id="copy-btn" class="btn btn-secondary">
+          <span class="btn-icon">⧉</span> Copy
+        </button>
+        <button id="download-btn" class="btn btn-secondary">
+          <span class="btn-icon">↓</span> Download
+        </button>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3 class="section-title">Settings</h3>
+      <div class="setting">
+        <label for="include-frontmatter">Include frontmatter</label>
+        <input type="checkbox" id="include-frontmatter" checked>
+      </div>
+      <div class="setting">
+        <label for="wait-time">Wait time (ms)</label>
+        <input type="number" id="wait-time" value="2000" min="0" max="10000" step="500">
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span class="footer-text">KContextify</span>
+    </footer>
+  </div>
+  <script type="module" src="popup.ts"></script>
+</body>
+</html>
