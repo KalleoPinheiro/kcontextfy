@@ -14,7 +14,7 @@ export function createTurndownService(options?: Partial<ConversionOptions>): Tur
 
   // Remove unwanted tags (script, style, noscript, form, iframe)
   const unwantedTags = ['script', 'style', 'noscript', 'form', 'iframe'];
-  unwantedTags.forEach(tag => {
+  unwantedTags.forEach((tag) => {
     td.addRule(tag, {
       filter: (node) => node.nodeName.toLowerCase() === tag,
       replacement: () => '',
@@ -27,15 +27,15 @@ export function createTurndownService(options?: Partial<ConversionOptions>): Tur
       if (node.nodeType !== 1) return false; // Element nodes only
       const element = node as Element;
       return Array.from(element.attributes).some(
-        attr => attr.name.startsWith('data-') || attr.name.startsWith('on')
+        (attr) => attr.name.startsWith('data-') || attr.name.startsWith('on')
       );
     },
     replacement: (content, node) => {
       const element = (node as Element).cloneNode(true) as HTMLElement;
       // Remove data-* and on* attributes
       Array.from(element.attributes)
-        .filter(attr => attr.name.startsWith('data-') || attr.name.startsWith('on'))
-        .forEach(attr => element.removeAttribute(attr.name));
+        .filter((attr) => attr.name.startsWith('data-') || attr.name.startsWith('on'))
+        .forEach((attr) => element.removeAttribute(attr.name));
       return td.turndown(element);
     },
   });
@@ -53,7 +53,7 @@ export function convertToMarkdown(html: string, options?: Partial<ConversionOpti
 
 export function processExtractedContent(result: ExtractionResult): string {
   // Normalize heading hierarchy before conversion
-  let normalizedContent = normalizeHeadingHierarchy(result.content);
+  const normalizedContent = normalizeHeadingHierarchy(result.content);
 
   let markdown = convertToMarkdown(normalizedContent);
 
@@ -77,8 +77,8 @@ function normalizeHeadingHierarchy(html: string): string {
   const headings = Array.from(doc.querySelectorAll('h1, h2, h3, h4, h5, h6'));
   let minLevel = 1;
 
-  headings.forEach(heading => {
-    const currentLevel = parseInt(heading.tagName[1], 10);
+  headings.forEach((heading) => {
+    const currentLevel = Number.parseInt(heading.tagName[1], 10);
 
     if (currentLevel > minLevel + 1) {
       // Demote heading to minLevel + 1
@@ -119,7 +119,7 @@ function deduplicateLinks(markdown: string): string {
   // First pass: collect all link definitions and build mapping
   let match;
   while ((match = linkDefRegex.exec(markdown)) !== null) {
-    const linkNum = parseInt(match[1], 10);
+    const linkNum = Number.parseInt(match[1], 10);
     const url = match[2].trim();
 
     if (!urlMap.has(url)) {
@@ -131,7 +131,7 @@ function deduplicateLinks(markdown: string): string {
 
   // Second pass: replace link references with deduplicated numbers
   let result = markdown.replace(/\[([^\]]+)\]\[(\d+)\]/g, (match, text, linkNum) => {
-    const newNum = linkMap.get(parseInt(linkNum, 10)) ?? linkNum;
+    const newNum = linkMap.get(Number.parseInt(linkNum, 10)) ?? linkNum;
     return `[${text}][${newNum}]`;
   });
 
@@ -142,7 +142,10 @@ function deduplicateLinks(markdown: string): string {
   });
 
   // Remove old link definitions
-  result = result.replace(/^\[\d+\]:\s*.+?$/gm, '').replace(/\n\n+/g, '\n\n').trim();
+  result = result
+    .replace(/^\[\d+\]:\s*.+?$/gm, '')
+    .replace(/\n\n+/g, '\n\n')
+    .trim();
 
   // Append deduplicated link definitions
   if (uniqueLinks.size > 0) {

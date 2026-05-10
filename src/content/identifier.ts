@@ -1,10 +1,10 @@
-import { PageTypeResult, PageType } from '../shared/types';
 import {
-  CONFIDENCE_THRESHOLD,
   ARTICLE_META_SELECTORS,
-  VIDEO_DOMAINS,
+  CONFIDENCE_THRESHOLD,
   SITE_SPECIFIC_SELECTORS,
+  VIDEO_DOMAINS,
 } from '../shared/constants';
+import { PageType, type PageTypeResult } from '../shared/types';
 
 export function identifyPageType(): PageTypeResult {
   const url = window.location.href;
@@ -28,7 +28,7 @@ export function identifyPageType(): PageTypeResult {
     return siteSpecific;
   }
 
-// Default to generic
+  // Default to generic
   return {
     type: 'generic',
     confidence: 1.0,
@@ -157,7 +157,7 @@ export function getMetaTags(): Record<string, string> {
   const metas = document.querySelectorAll('meta');
   const result: Record<string, string> = {};
 
-  metas.forEach(meta => {
+  metas.forEach((meta) => {
     const name = meta.getAttribute('name') || meta.getAttribute('property');
     const content = meta.getAttribute('content');
     if (name && content) {

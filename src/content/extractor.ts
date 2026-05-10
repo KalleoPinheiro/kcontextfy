@@ -1,10 +1,6 @@
 import { Readability } from '@mozilla/readability';
 import { DEFAULT_WAIT_TIME } from '../shared/constants';
-import type {
-  ExtractionResult,
-  PageTypeResult,
-  VideoMetadata,
-} from '../shared/types';
+import type { ExtractionResult, PageTypeResult, VideoMetadata } from '../shared/types';
 import { delay } from '../shared/utils';
 import { getMetaTags, identifyPageType } from './identifier';
 
@@ -60,8 +56,8 @@ function stripUIElements(): void {
     '.advertisement',
   ];
 
-  selectors.forEach(selector => {
-    document.querySelectorAll(selector).forEach(el => {
+  selectors.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((el) => {
       el.remove();
     });
   });
