@@ -116,14 +116,27 @@ function checkArticleType(): PageTypeResult {
     }
   }
 
-  // Extract essential metadata only (author, date, image)
-  const author = getMetaContent('article:author') || getMetaContent('author');
+  // Extract essential metadata (author, date, image)
+  const author =
+    getMetaContent('article:author') ||
+    getMetaContent('author') ||
+    getMetaContent('og:author') ||
+    getMetaContent('creator') ||
+    getMetaContent('twitter:creator');
   if (author) metadata.author = author;
 
-  const date = getMetaContent('article:published_time') || getMetaContent('date');
+  const date =
+    getMetaContent('article:published_time') ||
+    getMetaContent('published_date') ||
+    getMetaContent('datePublished') ||
+    getMetaContent('publish_date') ||
+    getMetaContent('date');
   if (date) metadata.date = date;
 
-  const image = getMetaContent('og:image');
+  const image =
+    getMetaContent('og:image') ||
+    getMetaContent('twitter:image') ||
+    getMetaContent('image');
   if (image) metadata.image = image;
 
   return { type: 'article', confidence, metadata };

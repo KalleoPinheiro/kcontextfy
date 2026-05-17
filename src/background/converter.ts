@@ -65,6 +65,9 @@ export function processExtractedContent(result: ExtractionResult): string {
   // Remove empty elements and excess whitespace
   markdown = cleanEmptyElements(markdown);
 
+  // Remove noise (like counts, UI text, etc.)
+  markdown = removeNoise(markdown);
+
   // Add frontmatter
   const frontmatter = generateFrontmatter(result);
 
@@ -161,6 +164,46 @@ function deduplicateLinks(markdown: string): string {
   return result;
 }
 
+function removeNoise(markdown: string): string {
+  // Remove common noise patterns
+  let result = markdown;
+
+  // Remove lines that look like UI counters (likes, shares, views, etc.)
+  result = result.replace(/^\*?\*?[\d,]+\s*(like|share|comment|view|vote|point|upvote|downvote)s?\*?\*?$/gim, '');
+
+  // Remove single numbers on own lines (reaction counts, etc.)
+  result = result.replace(/^[\d]+\s*$/gm, '');
+
+  // Remove "Skip to content", "Powered by", navigation text
+  result = result.replace(/^(Skip to content|Powered by .+|Create Post|Add reaction|Jump to Comments|Save|Boost)$/gim, '');
+
+  // Remove "PT | EN" language toggles
+  result = result.replace(/^\s*(PT|EN)\s*\|\s*(PT|EN)\s*$/gm, '');
+
+  // Remove "Participe da Discussão" and similar CTAs
+  result = result.replace(/\[?💬\]?\s*Participe da Discussão/gi, '');
+
+  // Remove author name followed by "Posted on" (already in metadata)
+  result = result.replace(/^(Posted on .+|Updated on .+)$/gim, '');
+
+  // Remove empty link references and orphaned refs
+  result = result.replace(/^\[\d+\]:\s*$/gm, '');
+
+  // Remove isolated hashtag lines (usually noise)
+  result = result.replace(/^#\s*$/gm, '');
+
+  // Remove "Voltar ao topo" / back to top
+  result = result.replace(/^(Voltar ao topo|Back to top)$/gim, '');
+
+  // Remove standalone hashtags that are just tags (keep only if with content)
+  result = result.replace(/^\n#\s*\w+\s*\n/gm, '\n');
+
+  // Clean multiple blank lines
+  result = result.replace(/\n\n\n+/g, '\n\n');
+
+  return result.trim();
+}
+
 function generateFrontmatter(result: ExtractionResult): string {
   const lines = ['---'];
 
@@ -168,15 +211,21 @@ function generateFrontmatter(result: ExtractionResult): string {
   lines.push(`url: "${result.url}"`);
   lines.push(`type: "${result.pageType.type}"`);
 
-  // Add only essential metadata (whitelisted)
-  const essentialMetadataKeys = ['author', 'date', 'image'];
-  if (result.pageType.metadata) {
-    for (const key of essentialMetadataKeys) {
-      const value = result.pageType.metadata[key];
-      if (value) {
-        lines.push(`${key}: "${escapeYaml(String(value))}"`);
-      }
-    }
+  // First try pageType.metadata (from identifier)
+  let author = result.pageType.metadata?.author;
+  let date = result.pageType.metadata?.date;
+
+  // Then try full metadata tags (from full meta extraction)
+  if (result.metadata) {
+    author = author || result.metadata['article:author'] || result.metadata['author'] || result.metadata['og:author'] || result.metadata['creator'];
+    date = date || result.metadata['article:published_time'] || result.metadata['published_date'] || result.metadata['datePublished'] || result.metadata['date'];
+  }
+
+  if (author) {
+    lines.push(`author: "${escapeYaml(author)}"`);
+  }
+  if (date) {
+    lines.push(`date: "${escapeYaml(date)}"`);
   }
 
   lines.push('---');

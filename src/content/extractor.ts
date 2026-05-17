@@ -88,17 +88,40 @@ function stripUIElements(): void {
   const selectors = [
     'nav',
     'footer',
+    'header',
     '[role="navigation"]',
     '[role="complementary"]',
     '[role="contentinfo"]',
+    '[role="banner"]',
     '.ads',
     '.sidebar',
     '.advertisement',
+    '.comments',
+    '.comment-section',
+    '.related-posts',
+    '.suggested-posts',
+    '.newsletter-signup',
+    '.share-buttons',
+    '.social-share',
+    '[class*="comment"]',
+    '[class*="ad"]',
+    '[class*="widget"]',
+    '[class*="sidebar"]',
+    '[class*="related"]',
+    '[class*="recommended"]',
+    '[class*="newsletter"]',
+    '[id*="comment"]',
+    '[id*="ad"]',
+    '[id*="widget"]',
   ];
 
   for (const selector of selectors) {
-    for (const el of Array.from(document.querySelectorAll(selector))) {
-      el.remove();
+    try {
+      for (const el of Array.from(document.querySelectorAll(selector))) {
+        el.remove();
+      }
+    } catch (e) {
+      // Skip invalid selectors
     }
   }
 }

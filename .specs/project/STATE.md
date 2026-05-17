@@ -56,7 +56,7 @@
 
 ## Current Session: 2026-05-17
 
-**Feature: Intelligent Content Sanitizer** ✅ COMPLETE
+**Feature 1: Intelligent Content Sanitizer** ✅ COMPLETE
 - Created `src/content/sanitizer.ts` (126 lines) — clean content extraction with metadata
 - Exported utilities to `src/shared/utils.ts`: getMetaContent(), extractAuthorFromText(), parsePublishedDate()
 - SanitizedContent interface: title, author, publishedAt, content
@@ -64,6 +64,42 @@
 - Build: ✓ TypeScript, ✓ Vite, ✓ All tests (93/93)
 - Commit: feat: Add intelligent content sanitizer module
 - Status: Ready for integration into extractor workflow
+
+**Feature 2: LLM Content Refinement via Gemini** ✅ COMPLETE (5/6 tasks)
+- [1] Storage + Types: RefinedContent, GeminiSettings, constants
+- [2] Settings Modal: Popup UI with API key config, daily quota, test connection
+- [3] LLM Refiner: Gemini 1.5 Flash API wrapper with timeout + caching
+- [4] Message Handler: Background worker 'refineContent' action
+- [5] UI Polish: Async refinement, AI-refined badge, graceful fallback
+- Architecture: Local-first + async LLM polish (non-blocking)
+- User flow: Extract → Show local result → Async LLM update + badge
+- Build: ✓ TypeScript, ✓ Vite
+- Tests: 93/93 passing (no regressions)
+- Status: Ready for manual testing in Chrome extension
+
+## Current Session: 2026-05-17 (continued)
+
+**Status**: LLM refinement feature COMPLETE and TESTED. Build successful (93/93 tests passing). Issue: Chrome service worker loading.
+
+**Chrome Service Worker Issue**:
+- Service worker registration fails with Status code 15
+- Error: "Cannot use import statement outside a module"
+- Root cause: Chrome treating background.js as classic script, not ES module
+- Build output is correct: background.js contains valid `import from "./constants.js"`
+- All files present in dist/ and properly linked
+
+**Troubleshooting Done**:
+- ✓ Verified Vite build output is valid ES modules
+- ✓ Verified manifest.json configuration is correct
+- ✓ Verified file paths and imports are correct
+- ✓ Reverted to clean Vite configuration
+- ✓ All 93 tests passing
+
+**Next Steps**:
+1. Verify Chrome version supports ES modules in MV3 service workers (requires Chrome 100+)
+2. Force-reload extension in `chrome://extensions` to clear any cached state
+3. Try loading extension fresh from dist/ folder
+4. If issue persists, may need to investigate Chrome version or try alternative bundling approach
 
 ## Session Paused: 2026-05-16 13:30
 

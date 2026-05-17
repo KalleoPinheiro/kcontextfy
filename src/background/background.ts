@@ -1,5 +1,13 @@
-import type { ChromeMessage, ExtractionResponse, ExtractionResult } from '../shared/types';
+import type {
+  ChromeMessage,
+  ExtractionResponse,
+  ExtractionResult,
+  RefineRequest,
+  RefineResponse,
+  RefinedContent,
+} from '../shared/types';
 import { addRecentExtraction } from './storage';
+import { refineContent, getGeminiSettings } from './llm-refiner';
 
 chrome.runtime.onMessage.addListener((message: ChromeMessage, _sender, sendResponse) => {
   if (message.action === 'extract') {
@@ -22,6 +30,18 @@ chrome.runtime.onMessage.addListener((message: ChromeMessage, _sender, sendRespo
           action: 'conversionError',
           error: error instanceof Error ? error.message : String(error),
         } as ExtractionResponse);
+      });
+    return true;
+  }
+
+  if (message.action === 'refineContent') {
+    handleRefineContent(message as RefineRequest)
+      .then((response) => sendResponse(response))
+      .catch((error) => {
+        sendResponse({
+          action: 'refineError',
+          error: error instanceof Error ? error.message : String(error),
+        } as RefineResponse);
       });
     return true;
   }
@@ -107,6 +127,38 @@ async function handleConvert(
   } catch (error) {
     return {
       action: 'conversionError',
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function handleRefineContent(message: RefineRequest): Promise<RefineResponse> {
+  try {
+    if (!message.payload) {
+      throw new Error('No payload provided');
+    }
+
+    // Get API key and current tab URL
+    const settings = await getGeminiSettings();
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const url = tab?.url || 'unknown';
+
+    // Call refiner (returns original if LLM disabled or fails)
+    const refined = await refineContent(
+      message.payload as RefinedContent,
+      settings.apiKey,
+      url
+    );
+
+    return {
+      action: 'refineComplete',
+      result: refined,
+    };
+  } catch (error) {
+    console.error('Refinement error:', error);
+    // Return original content on error
+    return {
+      action: 'refineError',
       error: error instanceof Error ? error.message : String(error),
     };
   }

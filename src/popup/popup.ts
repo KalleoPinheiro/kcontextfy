@@ -1,3 +1,5 @@
+import { SettingsModal } from './settings-modal';
+
 interface ExtractionResult {
   pageType: { type: string; confidence: number; metadata: Record<string, string> };
   title: string;
@@ -25,11 +27,13 @@ const resultType = document.getElementById('result-type')!;
 const resultPreview = document.getElementById('result-preview')!;
 const copyBtn = document.getElementById('copy-btn') as HTMLButtonElement;
 const downloadBtn = document.getElementById('download-btn') as HTMLButtonElement;
+const settingsBtn = document.getElementById('settings-btn') as HTMLButtonElement;
 const includeFrontmatterCheckbox = document.getElementById('include-frontmatter') as HTMLInputElement;
 const waitTimeInput = document.getElementById('wait-time') as HTMLInputElement;
 
 let lastExtraction: ExtractionResult | null = null;
 let lastMarkdown: string = '';
+const settingsModal = new SettingsModal();
 
 function setStatus(state: StatusState, text: string) {
   statusEl.className = `status ${state}`;
@@ -75,6 +79,9 @@ extractBtn.addEventListener('click', async () => {
         lastMarkdown = convertResponse.result.content;
         showResult(convertResponse.result, lastMarkdown);
         setStatus('success', 'Extraction complete');
+
+        // Async LLM refinement (non-blocking)
+        refineContentAsync(convertResponse.result);
       } else {
         throw new Error(convertResponse.error || 'Conversion failed');
       }
@@ -126,6 +133,48 @@ downloadBtn.addEventListener('click', () => {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 });
+
+settingsBtn?.addEventListener('click', () => {
+  settingsModal.open();
+});
+
+async function refineContentAsync(result: ExtractionResult) {
+  try {
+    const refinedPayload = {
+      title: result.title || null,
+      author: null,
+      publishedAt: null,
+      content: result.content,
+      refined: false,
+    };
+
+    const refineResponse = await chrome.runtime.sendMessage({
+      action: 'refineContent',
+      payload: refinedPayload,
+    } as ChromeMessage);
+
+    if (refineResponse.action === 'refineComplete' && refineResponse.result?.refined) {
+      updateResultWithRefinement(refineResponse.result);
+    }
+  } catch (error) {
+    console.debug('LLM refinement skipped:', error);
+  }
+}
+
+function updateResultWithRefinement(refined: ExtractionResult & { refined?: boolean }) {
+  if (refined.title && refined.title !== lastExtraction?.title) {
+    resultTitle.textContent = sanitizeText(refined.title);
+  }
+
+  const badge = resultSection.querySelector('.ai-refined-badge');
+  if (!badge && refined.refined) {
+    const newBadge = document.createElement('span');
+    newBadge.className = 'ai-refined-badge';
+    newBadge.textContent = '✨';
+    newBadge.title = 'AI-Refined';
+    resultTitle.parentElement?.appendChild(newBadge);
+  }
+}
 
 // Initialize
 setStatus('idle', 'Ready to extract');
