@@ -136,7 +136,7 @@ function extractArticleContent(): string {
       if (clonedElement) {
         const reader = new Readability(clonedDoc);
         const article = reader.parse();
-        if (article && article.content && article.content.trim().length > 100) {
+        if (article?.content && article.content.trim().length > 100) {
           return article.content;
         }
       }
@@ -145,7 +145,7 @@ function extractArticleContent(): string {
     // Fallback: Use Mozilla Readability on full document
     const reader = new Readability(document);
     const article = reader.parse();
-    if (article && article.content && article.content.trim().length > 100) {
+    if (article?.content && article.content.trim().length > 100) {
       return article.content;
     }
   } catch (e) {
@@ -440,10 +440,10 @@ function scoreWordLength(textLength: number, wordCount: number): number {
 
 // Export for testing
 export {
-  calculateConfidenceScore,
-  findBestContentElement,
-  getMetaTags,
-  scoreSemantic,
-  scoreStructural,
-  scoreTextDensity,
+    calculateConfidenceScore,
+    findBestContentElement,
+    getMetaTags,
+    scoreSemantic,
+    scoreStructural,
+    scoreTextDensity
 };

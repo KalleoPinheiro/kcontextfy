@@ -49,20 +49,52 @@
 ## Todos
 
 - [ ] Test Readability filtering on varied content types (NEXT PRIORITY)
-- [ ] Refine extractor heuristics if Readability insufficient
+- [ ] Refine extractor heuristics if Readability sufficient
 - [ ] Remove sidebar/nav/footer from extraction (blocked on test results)
 - [ ] Plan Phase 3: Advanced Extraction features (video transcripts, complex layouts)
+- [ ] Integrate sanitizeContent() into extractor.ts workflow (NEW)
 
-## Session Paused: 2026-05-10 13:15
+## Current Session: 2026-05-17
 
-**Status**: Sanitization refactoring COMPLETE. Build passing. Ready for manual validation in Chrome.
+**Feature: Intelligent Content Sanitizer** ✅ COMPLETE
+- Created `src/content/sanitizer.ts` (126 lines) — clean content extraction with metadata
+- Exported utilities to `src/shared/utils.ts`: getMetaContent(), extractAuthorFromText(), parsePublishedDate()
+- SanitizedContent interface: title, author, publishedAt, content
+- Test suite: 29 tests (sanitizer + utils), all passing
+- Build: ✓ TypeScript, ✓ Vite, ✓ All tests (93/93)
+- Commit: feat: Add intelligent content sanitizer module
+- Status: Ready for integration into extractor workflow
 
-**Refactoring: Noise Filtering & Sanitization** ✓
-- Added `sanitizeHtml()` helper (strips script, style, noscript, iframe, form)
-- Fixed Readability: no document clone, validates >100 char content
-- Improved fallback chain: all paths sanitized
-- Applied sanitization to all extraction types (article, video, generic)
-- Build: `pnpm build` ✓ (no errors)
+## Session Paused: 2026-05-16 13:30
+
+**Status**: Content scoring engine COMPLETE. Specs standardized to /tlc-spec-driven pattern. All tests passing.
+
+**Session Work (2026-05-16)**:
+
+**Feature: Content Scoring Engine** ✓
+- Implemented 7 tasks from improve-content-extraction-scoring/tasks.md
+- All tasks PASSING (28/28 tests)
+- Fixed cyclomatic complexity (extracted 12 helper functions from 3 main scorers)
+- Fixed biome forEach linting alerts (converted to for...of with Array.from())
+- Enhanced test suite: 28 tests (19 original + 9 behavior-focused)
+  - Tests validate quality > poor, signal compounding, edge cases
+  - Custom DOM mocks (no JSDOM)
+  - All assertions behavior-focused (not code-path)
+
+**Spec Standardization** ✓
+- Created 7 codebase analysis docs (.specs/codebase/):
+  1. STACK.md - Technology stack
+  2. ARCHITECTURE.md - System design, data flow, components
+  3. CONVENTIONS.md - TypeScript patterns, naming, function design
+  4. STRUCTURE.md - File layout, module details, cohesion
+  5. TESTING.md - Coverage targets (80%), test patterns, checklist
+  6. INTEGRATIONS.md - Dependencies, Chrome APIs, external services
+  7. CONCERNS.md - Tech debt, risks (fallback chain, scoring weights), fragile areas
+- Consolidated feature-level specs:
+  - Archived scattered v0 docs → .specs/archive/extraction-v0/
+  - extraction/ now clean (spec.md, design.md only)
+  - improve-content-extraction-scoring/ follows pattern (spec.md, design.md, tasks.md)
+- Project-level docs verified (PROJECT.md, ROADMAP.md, STATE.md)
 
 **What's Done**:
 - Content script extraction ✓
@@ -72,11 +104,11 @@
 - Manifest V3 setup ✓
 - Vite build pipeline ✓
 - Sanitization refactoring ✓
+- Dynamic scoring engine ✓ (NEW)
+- Spec standardization ✓ (NEW)
 
-**Next Session (Task 6 - Manual Validation)**:
-1. Load dist/ unpacked in Chrome (chrome://extensions → Load unpacked → select `dist/`)
-2. Re-extract test pages (test1.md, new pages)
-3. Verify: no `<script>`, `<style>`, `<form>` tags in output
-4. Verify: main content still preserved and readable
-5. If clean: commit changes
-6. If noise remains: debug and refine sanitizeHtml() patterns
+**Next Session Priorities**:
+1. Manual validation: Load extension in Chrome, test extraction on varied sites
+2. V2 roadmap: Video transcript extraction, link deduplication URL normalization, IndexedDB storage
+3. Fragile areas review: Heading normalization, MutationObserver tuning, Readability fallback
+4. Commit: Core feature complete + standardized specs
