@@ -29,6 +29,10 @@
 - Vite needs `base: './'` for relative paths in extensions (not `/absolute/`)
 - Icon references must be `.svg` (can be single file) not multiple `.png` sizes
 - Module-level code in bundled scripts runs at load time - wrap DOM access in functions
+- Content script must never mutate live DOM — clone first, sanitize/extract clone only
+- CSS stripping needs regex fallback (service worker has no DOMParser)
+- esbuild post-build step can bundle content.ts as IIFE after Vite run
+- Service worker can be ES module (Chrome 100+) but content scripts must be classic scripts
 
 ## Progress
 
@@ -79,27 +83,34 @@
 
 ## Current Session: 2026-05-17 (continued)
 
-**Status**: LLM refinement feature COMPLETE and TESTED. Build successful (93/93 tests passing). Issue: Chrome service worker loading.
+**Status**: HTML extraction + Markdown conversion COMPLETE. Bundle fixes + DOM safety + CSS stripping DONE. Build 101/101 tests passing.
 
-**Chrome Service Worker Issue**:
-- Service worker registration fails with Status code 15
-- Error: "Cannot use import statement outside a module"
-- Root cause: Chrome treating background.js as classic script, not ES module
-- Build output is correct: background.js contains valid `import from "./constants.js"`
-- All files present in dist/ and properly linked
+**DOM Mutation & Service Worker Issues**: ✅ FIXED
 
-**Troubleshooting Done**:
-- ✓ Verified Vite build output is valid ES modules
-- ✓ Verified manifest.json configuration is correct
-- ✓ Verified file paths and imports are correct
-- ✓ Reverted to clean Vite configuration
-- ✓ All 93 tests passing
+*Issue 1: Content script mutated live DOM*
+- Problem: `stripUIElements()` removed nodes directly from live page → broke host scripts (e.g., dev.to's followButtons.js)
+- Symptom: Page turned white, infinite error loop, "Cannot read properties of null"
+- Fix: Clone document first, sanitize clone only. Modified `extractArticleContent()` to `cloneNode(true)` before extraction
+- Result: ✓ No live DOM mutation, ✓ Host scripts unaffected
 
-**Next Steps**:
-1. Verify Chrome version supports ES modules in MV3 service workers (requires Chrome 100+)
-2. Force-reload extension in `chrome://extensions` to clear any cached state
-3. Try loading extension fresh from dist/ folder
-4. If issue persists, may need to investigate Chrome version or try alternative bundling approach
+*Issue 2: CSS leak into markdown*
+- Problem: `<style>` tags leaked as raw CSS text in output
+- Root cause: Service worker (background.js) context has no DOMParser
+- Fixes (3-layer defense):
+  1. Extractor: Added `stripUIElements` selectors for `style`, `script`, `noscript`, `template`, `link`, `meta`, + dev.to specific UI (modals, billboards)
+  2. Converter: Added `stripDangerousTags()` regex pass (pre-parse): strips `<style>`, `<script>`, `<noscript>`, `<template>`, `<link>`, `<meta>`
+  3. Post-processing: `removeNoise()` regex filters remaining CSS blocks (`:root{...}`, `@media{...}`)
+- Result: ✓ No CSS in output, ✓ Works in service worker context
+
+*Issue 3: Content script IIFE bundle*
+- Problem: Vite default rollup output is ES modules → `import` at top of content.js → Chrome MV3 content scripts can't use `import`
+- Fix: Added esbuild post-build step in vite.config.ts closeBundle hook:
+  - Rebuilds `src/content/content.ts` as IIFE single-file bundle
+  - esbuild options: `format: 'iife'`, `bundle: true`, `platform: 'browser'`
+  - Runs after Vite build, overwrites dist/content.js
+- Result: ✓ No `import` at start of content.js, ✓ Loads cleanly in content script context
+
+**Build Status**: ✓ 101/101 tests passing, ✓ Content script IIFE, ✓ Background ES module, ✓ No CSS/style leakage
 
 ## Session Paused: 2026-05-16 13:30
 

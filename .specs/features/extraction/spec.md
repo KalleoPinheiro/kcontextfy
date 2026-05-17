@@ -1,47 +1,115 @@
-# Feature Spec: Content Extraction & Markdown Conversion
+# Feature Spec: Content Extraction
 
 ## Overview
 
-Core engine to identify page type and convert DOM/API data into clean Markdown.
+Identify page type, safely extract article/video/generic content from live DOM, and return clean HTML ready for conversion to Markdown. Uses content cloning to avoid mutating the live page.
 
 ## Requirements
 
-### 1. Content Identification [REQ-1]
+### REQ-1: Page Type Identification [HIGH]
 
-- Detect if page is:
-  - Article (News, Blog, Doc)
-  - Video (YouTube, Vimeo)
-  - Generic Web Page
-- Use heuristics (meta tags, DOM patterns, URL) to decide.
+- [ ] Detect article (news, blog, doc, medium, dev.to, etc.)
+- [ ] Detect video (YouTube, Vimeo, etc.)
+- [ ] Detect generic web page
+- [ ] Use heuristics: meta tags, URL patterns, DOM structure
+- [ ] Return confidence score (0-1)
 
-### 2. Extraction Logic [REQ-2]
+**Rationale**: Different extraction strategies for different types.
 
-- **Articles**: Extract title, author, date, main body, and images. Strip nav, footer, ads.
-- **Videos**: Extract title, channel, and transcript (if available).
-- **Generic**: Extract main content area and key headings.
+### REQ-2: DOM Safety [BLOCKING]
 
-### 3. Markdown Conversion [REQ-3]
+- [ ] Clone document before any modification
+- [ ] Never mutate live page DOM
+- [ ] Operate exclusively on cloned document
+- [ ] Return clean HTML from clone, not live DOM
 
-- Convert HTML elements to MD:
-  - `<h1>`-`<h6>` $\to$ `#`-`######`
-  - `<strong>`/`<b>` $\to$ `**`
-  - `<em>`/`<i>` $\to$ `*`
-  - `<ul>`/`<ol>` $\to$ `-` or `1.`
-  - `<a>` $\to$ `[text](url)`
-  - `<img>` $\to$ `![alt](src)`
-- Ensure clean whitespace and logical structure.
+**Rationale**: Live DOM mutations break host page scripts. Recent blocker: dev.to followButtons.js crashed when we removed nodes.
 
-### 4. Performance & Constraints [REQ-4]
+**Tests**:
+- Live DOM unchanged after extraction
+- Cloned DOM has UI noise stripped
+- Host scripts continue running
 
-- Execution must be non-blocking for UI.
-- Handle large pages without crashing browser tab.
-- Support Manifest V3 background/content script communication.
+### REQ-3: Article Extraction [HIGH]
 
-## Traceability Matrix
+- [ ] Strip UI chrome: nav, footer, header, aside, ads, comments
+- [ ] Find main content via scoring (semantic + structural + density)
+- [ ] Fallback to Mozilla Readability on clean clone
+- [ ] Extract title, author, date from metadata
+- [ ] Return clean HTML
 
-| Req ID | Goal |
-|--------|------|
-| REQ-1  | High-fidelity identification |
-| REQ-2  | Accurate content capture |
-| REQ-3  | Clean MD output |
-| REQ-4  | Fast, stable UX |
+**Rationale**: Articles have stable structure; scoring finds best match.
+
+**Tests**:
+- High-confidence extraction on well-structured sites
+- Readability fallback on unstructured sites
+- UI elements stripped
+
+### REQ-4: Video Extraction [MEDIUM]
+
+- [ ] Extract title, channel name
+- [ ] Placeholder for transcript (V2 feature)
+- [ ] Return JSON metadata block
+
+**Rationale**: Videos lack semantic HTML; metadata-only for now.
+
+### REQ-5: Generic Extraction [MEDIUM]
+
+- [ ] Find `<main>` or `[role="main"]`
+- [ ] Fallback to body content
+- [ ] Return clean HTML
+
+**Rationale**: Generic pages vary widely; heuristic approach.
+
+### REQ-6: Stability Detection [HIGH]
+
+- [ ] Wait for DOM mutations to settle (1s debounce, 10s max)
+- [ ] Use MutationObserver on cloned doc
+- [ ] Handle async content load
+- [ ] Timeout gracefully
+
+**Rationale**: Single-page apps load content dynamically; need to wait.
+
+**Tests**:
+- Content stable before extraction (1s no mutations)
+- Timeout respected (10s max)
+- Async images handled
+
+### REQ-7: Performance & Constraints [MEDIUM]
+
+- [ ] Extraction completes in <2s on typical articles
+- [ ] Handle large pages (10MB+) without crashing
+- [ ] Content script messages don't block popup
+- [ ] Support MV3 async message passing
+
+## Traceability & Implementation
+
+| Req ID | Component | Status | Notes |
+|--------|-----------|--------|-------|
+| REQ-1  | identifier.ts | ✅ Active | Page type + confidence score |
+| REQ-2  | extractor.ts (cloneNode + stripUIElements) | ✅ Fixed (2026-05-17) | No live DOM mutation |
+| REQ-3  | extractor.ts (scoring + Readability) | ✅ Active | Best-fit algorithm + fallback |
+| REQ-4  | extractor.ts (video metadata) | ✅ Active | Title + channel only |
+| REQ-5  | extractor.ts (generic fallback) | ✅ Active | Main/body selection |
+| REQ-6  | extractor.ts (waitForContent) | ✅ Active | MutationObserver 1s/10s |
+| REQ-7  | content script + async messaging | ✅ Active | <2s typical |
+
+## Architecture Notes
+
+**Extraction Pipeline** (order matters):
+1. Clone live document
+2. Strip UI elements (nav, ads, comments, CSS, scripts, modals)
+3. Wait for stability (MutationObserver)
+4. Score candidates (semantic + structural + density)
+5. Extract best match or Readability fallback
+6. Return clean HTML to background
+
+**Key Design Decisions**:
+- **Clone first** → never touch live page
+- **Score + fallback** → handles both structured and unstructured sites
+- **MutationObserver** → waits for real content, not fixed timeout
+- **Metadata from live DOM** → author/date extracted before conversion
+
+---
+
+*Last updated: 2026-05-17. Status: active. DOM cloning safety fully implemented.*

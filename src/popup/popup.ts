@@ -33,6 +33,7 @@ const waitTimeInput = document.getElementById('wait-time') as HTMLInputElement;
 
 let lastExtraction: ExtractionResult | null = null;
 let lastMarkdown: string = '';
+let extractionSeq = 0;
 const settingsModal = new SettingsModal();
 
 function setStatus(state: StatusState, text: string) {
@@ -66,8 +67,19 @@ extractBtn.addEventListener('click', async () => {
   extractBtn.disabled = true;
   setStatus('loading', 'Extracting...');
 
+  // Bump sequence + reset state so stale refinements get ignored
+  const mySeq = ++extractionSeq;
+  lastExtraction = null;
+  lastMarkdown = '';
+  resultPreview.textContent = '';
+  resultTitle.textContent = '';
+  resultSection.classList.add('hidden');
+  resultSection.querySelector('.ai-refined-badge')?.remove();
+
   try {
     const response = await chrome.runtime.sendMessage({ action: 'extract' } as ChromeMessage);
+
+    if (mySeq !== extractionSeq) return;
 
     if (response.action === 'extractionComplete' && response.result) {
       const convertResponse = await chrome.runtime.sendMessage({
@@ -75,13 +87,15 @@ extractBtn.addEventListener('click', async () => {
         payload: response.result,
       } as ChromeMessage & { payload: ExtractionResult });
 
+      if (mySeq !== extractionSeq) return;
+
       if (convertResponse.result) {
         lastMarkdown = convertResponse.result.content;
         showResult(convertResponse.result, lastMarkdown);
         setStatus('success', 'Extraction complete');
 
-        // Async LLM refinement (non-blocking)
-        refineContentAsync(convertResponse.result);
+        // Async LLM refinement (non-blocking, guarded by sequence)
+        refineContentAsync(convertResponse.result, mySeq);
       } else {
         throw new Error(convertResponse.error || 'Conversion failed');
       }
@@ -89,6 +103,7 @@ extractBtn.addEventListener('click', async () => {
       throw new Error(response.error || 'Extraction failed');
     }
   } catch (error) {
+    if (mySeq !== extractionSeq) return;
     setStatus('error', error instanceof Error ? error.message : 'Unknown error');
   } finally {
     extractBtn.disabled = false;
@@ -138,7 +153,7 @@ settingsBtn?.addEventListener('click', () => {
   settingsModal.open();
 });
 
-async function refineContentAsync(result: ExtractionResult) {
+async function refineContentAsync(result: ExtractionResult, seq: number) {
   try {
     const refinedPayload = {
       title: result.title || null,
@@ -153,6 +168,12 @@ async function refineContentAsync(result: ExtractionResult) {
       payload: refinedPayload,
     } as ChromeMessage);
 
+    // Ignore stale refinement results from previous extractions
+    if (seq !== extractionSeq) {
+      console.debug('Stale refinement discarded (extraction superseded)');
+      return;
+    }
+
     if (refineResponse.action === 'refineComplete' && refineResponse.result?.refined) {
       updateResultWithRefinement(refineResponse.result);
     }
@@ -164,6 +185,12 @@ async function refineContentAsync(result: ExtractionResult) {
 function updateResultWithRefinement(refined: ExtractionResult & { refined?: boolean }) {
   if (refined.title && refined.title !== lastExtraction?.title) {
     resultTitle.textContent = sanitizeText(refined.title);
+  }
+
+  // Update markdown content with refined version
+  if (refined.content) {
+    lastMarkdown = refined.content;
+    resultPreview.textContent = sanitizeText(lastMarkdown, 500);
   }
 
   const badge = resultSection.querySelector('.ai-refined-badge');

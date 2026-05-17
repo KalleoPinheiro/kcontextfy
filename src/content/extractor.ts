@@ -84,11 +84,20 @@ function observeForContentStability(): Promise<void> {
   });
 }
 
-function stripUIElements(): void {
+function stripUIElements(root: Document | HTMLElement): void {
   const selectors = [
+    'style',
+    'script',
+    'noscript',
+    'template',
+    'link',
+    'meta',
+    'svg',
+    'iframe',
     'nav',
     'footer',
     'header',
+    'aside',
     '[role="navigation"]',
     '[role="complementary"]',
     '[role="contentinfo"]',
@@ -103,6 +112,13 @@ function stripUIElements(): void {
     '.newsletter-signup',
     '.share-buttons',
     '.social-share',
+    '.subheading-anchor',
+    '.heading-anchor',
+    '.anchor-link',
+    'a.headerlink',
+    '.lang-toggle',
+    '.language-switcher',
+    '[id*="disqus"]',
     '[class*="comment"]',
     '[class*="ad"]',
     '[class*="widget"]',
@@ -113,15 +129,45 @@ function stripUIElements(): void {
     '[id*="comment"]',
     '[id*="ad"]',
     '[id*="widget"]',
+    '.crayons-modal',
+    '.crayons-snackbar',
+    '.spec__tags',
+    '.article-actions-container',
+    '#comments',
+    '#sidebar-wrapper-right',
+    '#sidebar-wrapper-left',
+    '[data-testid*="modal"]',
+    '[id*="billboard"]',
+    '[class*="billboard"]',
+    '[data-tracking-id*="billboard"]',
+    '.profile-preview-card',
+    '.reactions-container',
+    '.author-section',
+    '.follow-button',
+    '.community-block',
+    '.crayons-comment',
+    '#report-abuse-modal',
+    '[href*="report-abuse"]',
   ];
 
   for (const selector of selectors) {
     try {
-      for (const el of Array.from(document.querySelectorAll(selector))) {
+      for (const el of Array.from(root.querySelectorAll(selector))) {
         el.remove();
       }
     } catch (e) {
       // Skip invalid selectors
+    }
+  }
+
+  // Headings often have empty <a>/<span> anchors used only for permalinks.
+  // These wreck Turndown's heading output (produce `[][N]` suffixes). Strip them.
+  for (const heading of Array.from(root.querySelectorAll('h1, h2, h3, h4, h5, h6'))) {
+    for (const child of Array.from(heading.children)) {
+      const text = child.textContent?.trim() ?? '';
+      if (text === '') {
+        child.remove();
+      }
     }
   }
 }
@@ -147,47 +193,35 @@ function extractTitle(pageType: PageTypeResult): string {
 
 function extractArticleContent(): string {
   try {
-    // Strip UI chrome before extraction
-    stripUIElements();
+    // Clone live doc — NEVER mutate live DOM (breaks host page scripts like dev.to followButtons)
+    const clonedDoc = document.cloneNode(true) as Document;
+    stripUIElements(clonedDoc);
 
-    // Use dynamic scoring to find best content element
-    const bestElement = findBestContentElement();
-    if (bestElement) {
-      // Convert best-scored element to markdown via Readability
-      const clonedDoc = document.cloneNode(true) as Document;
-      const clonedElement = clonedDoc.querySelector(`#${bestElement.id}`) as HTMLElement | null;
-      if (clonedElement) {
-        const reader = new Readability(clonedDoc);
-        const article = reader.parse();
-        if (article?.content && article.content.trim().length > 100) {
-          return article.content;
-        }
-      }
+    const bestElement = findBestContentElement(clonedDoc);
+    if (bestElement && bestElement.innerHTML.trim().length > 100) {
+      return bestElement.innerHTML;
     }
 
-    // Fallback: Use Mozilla Readability on full document
-    const reader = new Readability(document);
+    const articleEl = findMainArticle(clonedDoc);
+    if (articleEl && articleEl.innerHTML.trim().length > 100) {
+      return articleEl.innerHTML;
+    }
+
+    const reader = new Readability(clonedDoc);
     const article = reader.parse();
     if (article?.content && article.content.trim().length > 100) {
       return article.content;
     }
   } catch (e) {
-    console.error('[KContextify] Readability error:', e);
+    console.error('[KContextify] Extraction error:', e);
   }
 
-  // Fallback to manual extraction
-  const articleEl = findMainArticle();
-  if (articleEl) {
-    return articleEl.innerHTML;
-  }
-
-  // Last resort
+  // Last resort — read live body innerHTML (no mutation)
   return document.body?.innerHTML || '';
 }
 
-function findBestContentElement(): HTMLElement | null {
-  // Find candidate elements that might contain main content
-  const candidates = document.querySelectorAll(
+function findBestContentElement(root: Document = document): HTMLElement | null {
+  const candidates = root.querySelectorAll(
     'article, main, [role="main"], [role="article"], .article, .post, .content, .main-content, #content, #main-content'
   );
 
@@ -243,10 +277,9 @@ function extractGenericContent(): string {
   return document.body?.innerHTML || '';
 }
 
-function findMainArticle(): HTMLElement | null {
-  // Try article element
-  const article = document.querySelector('article');
-  if (article) return article;
+function findMainArticle(root: Document = document): HTMLElement | null {
+  const article = root.querySelector('article');
+  if (article) return article as HTMLElement;
 
   // Try common article class names
   const articleClasses = [
@@ -259,11 +292,11 @@ function findMainArticle(): HTMLElement | null {
   ];
 
   for (const cls of articleClasses) {
-    const element = document.querySelector(`.${cls}`) as HTMLElement | null;
+    const element = root.querySelector(`.${cls}`) as HTMLElement | null;
     if (element) return element;
   }
 
-  const contentDiv = document.querySelector('#content, #main-content') as HTMLElement | null;
+  const contentDiv = root.querySelector('#content, #main-content') as HTMLElement | null;
   if (contentDiv) return contentDiv;
 
   return null;

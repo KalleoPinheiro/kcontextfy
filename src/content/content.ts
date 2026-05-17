@@ -3,7 +3,7 @@ import type { ChromeMessage, ExtractionResponse } from '../shared/types';
 import { extractContent } from './extractor';
 import { getMetaTags } from './identifier';
 
-console.log('[KContextify] Content script loaded');
+console.log('[KContextify] Content script loaded — converter v2 (h2-anchor-fix)');
 
 chrome.runtime.onMessage.addListener((message: ChromeMessage, _sender, sendResponse) => {
   console.log('[KContextify] Message received:', message.action);

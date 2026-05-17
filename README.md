@@ -70,7 +70,9 @@ Outputs to `dist/` with `manifest.json`, `background.js`, `content.js`, `popup.h
 
 ### Hot Reload
 
-After `pnpm build`, go to `chrome://extensions/` and click **Update** on the extension card. Or use an extension like [Extensity](https://chrome.google.com/webstore/detail/extensity) for quick reload.
+After `pnpm build`, go to `chrome://extensions/` and click the **Reload** button (circular arrow) on the KContextify card. This clears Chrome's cache and loads the new code.
+
+**Important**: Always reload the extension in `chrome://extensions/` after rebuilding. Chrome caches content scripts aggressively; without reload, you'll run old code.
 
 ### Test Extraction
 
@@ -81,18 +83,60 @@ After `pnpm build`, go to `chrome://extensions/` and click **Update** on the ext
 
 ## Architecture
 
+High-level flow:
+
+```
+Webpage DOM (live)
+    ↓
+Content Script (extractor.ts)
+    • Clone document (isolate from live page)
+    • Strip UI noise (nav, ads, CSS, scripts)
+    • Score content and extract best match
+    ↓
+Background Service (converter.ts)
+    • 3-layer CSS defense: regex + DOM + post-process
+    • Convert HTML → Markdown (Turndown + GFM)
+    • Generate YAML frontmatter
+    ↓
+Popup / User
+    • Display Markdown result
+    • Copy or download
+```
+
+### Key Design Decisions
+
+- **DOM cloning**: Content extraction happens on a cloned document. Never mutates live page.
+- **CSS safety**: Uses 3 layers (extractor selectors, converter regex, post-process filters) to ensure CSS never leaks into output.
+- **Service worker compatible**: All sanitization has regex fallback; works without DOMParser.
+
+### File Structure
+
 ```text
 src/
-├── content/        # Content script (runs in page context)
+├── content/           # Content script (runs in page context)
 │   ├── identifier.ts  # Page type detection
-│   └── extractor.ts  # Readability-style extraction
-├── background/     # Service worker
-│   ├── background.ts # Messaging orchestration
-│   ├── converter.ts  # HTML → Markdown
-│   └── storage.ts    # chrome.storage wrapper
-├── popup/          # Extension popup UI
-└── shared/         # Types, constants, utils
+│   ├── extractor.ts   # Clone + extract + score
+│   ├── content.ts     # Message listener & orchestrator
+│   └── [other]
+├── background/        # Service worker
+│   ├── background.ts  # Message handler
+│   ├── converter.ts   # HTML → Markdown pipeline
+│   ├── llm-refiner.ts # Gemini content enrichment
+│   └── [other]
+├── popup/             # Extension popup UI
+│   ├── popup.html
+│   ├── popup.css
+│   └── popup.ts
+├── shared/            # Shared types & constants
+└── __tests__/         # Unit tests (Vitest)
 ```
+
+### Detailed Specs
+
+See `.specs/` directory for detailed specifications:
+- `.specs/project/` — PROJECT.md (vision), ROADMAP.md (phases), STATE.md (decisions, blockers, lessons)
+- `.specs/codebase/` — ARCHITECTURE.md, STACK.md, CONVENTIONS.md, TESTING.md, CONCERNS.md
+- `.specs/features/` — Feature specs (extraction/, markdown-conversion/, etc.)
 
 ## Permissions
 

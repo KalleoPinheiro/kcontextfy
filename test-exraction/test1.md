@@ -1,1041 +1,335 @@
- 
-Refactoring
-Agile
-Architecture
-About
-Thoughtworks
-Table of Contents
-Modularizing React Applications with Established UI Patterns
+---
+title: "RAG Está Morto? Contexto Longo, Grep e o Fim do Vector DB Obrigatório"
+url: "https://akitaonrails.com/2026/04/06/rag-esta-morto-contexto-longo/"
+type: "article"
+author: "@AkitaOnRails"
+date: "2026-04-06T11:00:00-03:00"
+---
 
-Established UI patterns are often underutilized in the frontend development world, despite their proven effectiveness in solving complex problems in UI design. This article explores the application of established UI building patterns to the React world, with a refactoring journey code example to showcase the benefits. The emphasis is placed on how layering architecture can help organize the React application for improved responsiveness and future changes.
+Já tem um tempo que essa coceira não me larga. No começo da onda de LLMs, lá em 2022/2023, a gente tinha 4k de contexto no GPT 3.5, 8k se esticasse, 32k era luxo. Pra fazer qualquer coisa com documento real, você não tinha escolha: tinha que recortar o texto em pedaços, gerar embeddings, jogar num vector database, fazer similarity search, pegar os top-5 chunks e rezar pra que os pedaços certos aparecessem.
 
-16 February 2023
+Daí virou indústria. Pinecone, Weaviate, Qdrant, Chroma, Milvus, pgvector, LangChain, LlamaIndex, Haystack. Tutorial em todo canto, “construa seu chatbot com seus PDFs”, consultorias inteiras vivendo disso. Virou meio que o “hello world” de LLM aplicado: documento → chunk → embed → vector DB → query.
 
-Juntao QIU | 邱俊涛
+Hoje, em abril de 2026, o Claude Opus 4.6 tem 1 milhão de tokens de contexto. O Sonnet 4.6, idem. O Gemini 3.1 Pro também. O GPT 5.4 fica numa janela menor mas ainda confortável, na casa das centenas de milhares. E pra alguns modelos já tem modos experimentais de 2M tokens. A pergunta que não me larga é: pra que cargas d’água eu preciso montar uma stack vector pra resolver problema que cabe na janela do modelo?
 
-Juntao is a software developer at Thoughtworks with a passion for test-driven development, refactoring, and clean code. He enjoys sharing his knowledge and helping other developers grow.
+E mais: vector database tem problemas reais que ninguém gosta muito de falar. Falsos vizinhos. Chunking arbitrário que parte definição do uso. Embeddings que envelhecem mal. Sem dizer que quando o resultado vem errado, você não tem a menor ideia do porquê.
 
-Juntao is also an author, having published several books on the field. Additionally, he is a blogger, YouTuber, and content creator to help people write better code.
+A tese que eu venho amadurecendo é simples: na maioria dos casos, um `grep` bem feito mais uma janela de contexto generosa do modelo bate uma stack RAG completa. É mais barato, é mais fácil de manter, e quando dá pau você consegue debugar. Bora destrinchar.
 
-APPLICATION ARCHITECTURE
+## O que o vazamento do Claude Code mostrou
 
-FRONT-END
+Antes de entrar na parte teórica, vale falar de algo que aconteceu há poucos dias e que reforça muito essa discussão. Em 31 de março de 2026, a Anthropic, sem querer, publicou no npm a versão 2.1.88 do pacote `@anthropic-ai/claude-code` com um source map de quase 60 MB anexado, e cerca de 512 mil linhas de TypeScript da ferramenta interna deles vazaram pro mundo. Eu já tinha [escrito sobre o incidente na semana passada](/2026/03/31/codigo-fonte-do-claude-code-vazou-o-que-achamos-dentro/), com mais detalhe sobre o que apareceu no código.
 
-CONTENTS
-React is a humble library for building views
-Welcome to the real world React application
-Apart from the user interface
-The evolution of a React application
-Single Component Application
-Multiple Component Application
-State management with hooks
-Business models emerged
-Layered frontend application
-Introduction of the Payment feature
-The problem with the initial implementation
-The split of view and non-view code
-Split the view by extracting sub component
-Data modelling to encapsulate logic
-The benefits of the new structure
-New requirement: donate to a charity
-Internal state: agree to donation
-Extract a hook to the rescue
-More changes about round-up logic
-The shotgun surgery problem
-Polymorphism to the rescue
-Push the design a bit further: extract a network client
-The benefits of having these layers
-Conclusion
+O que interessa pra essa discussão é o sistema de memória do Claude Code. Em vez de jogar tudo num vector DB, a arquitetura tem três camadas. Um `MEMORY.md` que fica permanentemente carregado no contexto, mas não guarda dado nenhum: é só um índice de ponteiros, umas 150 caracteres por linha, mantido abaixo de 200 linhas e uns 25 KB. Os fatos de verdade ficam em “topic files” buscados sob demanda quando o agente precisa. E os transcripts brutos das sessões anteriores nunca são relidos inteiros, só pesquisados com grep atrás de identificador específico. Sem embedding. Sem Pinecone. Disciplina de escrita (topic file primeiro, índice depois) e busca lexical, só isso.
 
-While I've put React application, there isn't such a thing as React application. I mean, there are front-end applications written in JavaScript or TypeScript that happen to use React as their views. However, I think it's not fair to call them React applications, just as we wouldn't call a Java EE application JSP application.
+O loop principal do Claude Code também tem um sistema escalonado pra lidar com contexto enchendo. Como [eu detalhei no post anterior](/2026/03/31/codigo-fonte-do-claude-code-vazou-o-que-achamos-dentro/), são cinco estratégias diferentes de compactação de contexto, com nomes tipo `microcompact` (limpa resultados de tool antigos por tempo), `context collapse` (resume trechos longos da conversa), e `autocompact` (que dispara quando o contexto chega perto do limite). O CLAUDE.md, que muita gente pensava que era só uma convenção, é primeira classe na arquitetura: o sistema relê o arquivo a cada iteração da query.
 
-More often than not, people squeeze different things into React components or hooks to make the application work. This type of less-organised structure isn't a problem if the application is small or mostly without much business logic. However, as more business logic shifted to front-end in many cases, this everything-in-component shows problems. To be more specific, the effort of understanding such type of code is relatively high, as well as the increased risk to code modification.
+O que isso me diz: a melhor ferramenta de coding agent que existe hoje, feita pela empresa que vende o modelo mais caro do mercado, **não usa vector DB**. Usa arquivos no disco, índice em markdown, busca lexical, e estratégias inteligentes de compactação quando o contexto estoura. Eles poderiam ter botado embedding, eles têm dinheiro pra rodar o que quisessem, e escolheram não. O motivo, na minha leitura, é exatamente o que esse post defende: pra recuperar texto de arquivos que você controla, com contexto generoso disponível, vector DB é peso morto. Melhor investir em compactar bem o que você já tem na janela do que indexar tudo num banco externo.
 
-In this article, I would like to discuss a few patterns and techniques you can use to reshape your “React application” into a regular one, and only with React as its view (you can even swap these views into another view library without too much efforts).
+Tem um detalhe curioso de segurança que veio junto: a galera percebeu que o pipeline de compactação tem uma vulnerabilidade chamada de “context poisoning”. Conteúdo que parece instrução, vindo de um arquivo que o modelo lê (tipo um CLAUDE.md de um repo clonado), pode acabar sendo preservado pelo modelo de compactação como se fosse “feedback do usuário”, e o modelo seguinte segue isso como instrução genuína. É um vetor de ataque novo. Mas isso é assunto pra outro post.
 
-The critical point here is you should analyse what role each part of the code is playing within an application (even on the surface, they might be packed in the same file). Separate view from no-view logic, split the no-view logic further by their responsibilities and place them in the right places.
+### O sistema “Dream” e a consolidação de memória
 
-The benefit of this separation is that it allows you to make changes in the underlying domain logic without worrying too much about the surface views, or vice versa. Also, it can increase the reusability of the domain logic in other places as they are not coupled to any other parts.
+Mas o que mais me chamou atenção pro debate de RAG, e que eu já [destrinchei na semana passada](/2026/03/31/codigo-fonte-do-claude-code-vazou-o-que-achamos-dentro/), é o sistema chamado `autoDream`. É um subagente forkado, com bash read-only no projeto, que roda em background enquanto você não está usando a ferramenta. O job dele é literalmente sonhar: consolidar memória. O nome não é à toa, e a analogia óbvia (que eu não consegui evitar) é a do cérebro humano consolidando memória durante o sono, transformando experiência de curto prazo em conhecimento mais estável.
 
-React is a humble library for building views
+Pra um sonho rodar, três portas têm que abrir ao mesmo tempo: 24 horas desde o último sonho, no mínimo 5 sessões desde o último, e um lock de consolidação que impede sonhos concorrentes. Quando dispara, segue quatro fases. Orient (faz `ls` no diretório de memória, lê o índice). Gather (busca sinais novos em logs, memórias desatualizadas e transcripts). Consolidate (escreve ou atualiza os topic files, converte data relativa em absoluta, deleta fato que foi contraditado). E Prune, que é a faxina final que mantém o índice abaixo das 200 linhas.
 
-It's easy to forget that React, at its core, is a library (not a framework) that helps you build the user interface.
+A decisão de fazer o `autoDream` como subagente forkado é o detalhe que importa aqui. Ele não roda no mesmo loop do agente principal. Por quê? Porque consolidação de memória é processo barulhento. O modelo tem que reler transcript antigo, comparar com o que está no `MEMORY.md`, decidir o que fica e o que sai, fazer hipótese sobre coisa que viu em sessão anterior. Se isso rodasse no contexto principal, poluía o “train of thought” do agente que está tentando ajudar você na tarefa do momento. Forkando, separa as duas coisas. O agente principal continua focado no que você pediu, o `autoDream` faz a faxina em paralelo, sem permissão de escrita no projeto.
 
-In this context, it is emphasized that React is a JavaScript library that concentrates on a particular aspect of web development, namely UI components, and offers ample freedom in terms of the design of the application and its overall structure.
+E o jeito como ele acha o que tem que consolidar é busca lexical, pura e dura. Os transcripts ficam em arquivos JSONL no disco, e o `autoDream` usa grep pra procurar sinais novos. Grep mesmo, em log de texto. Pensa nisso por um segundo. A consolidação de memória do agente mais avançado do mundo, feita por uma das empresas mais ricas de IA, é um subagente forkado fazendo grep em log de texto. Se vector DB fosse a resposta certa pra esse tipo de problema, a Anthropic tinha botado vector DB. Não botaram.
 
-A JavaScript library for building user interfaces
+E tem um detalhe que pra mim é o ouro escondido do leak inteiro, e que cabe perfeitamente nesse argumento. No `autoDream`, memória é tratada como pista. O sistema parte do princípio de que o que está armazenado pode estar velho, errado, contraditado por algo que aconteceu depois, e o modelo tem que verificar antes de confiar. O pitch do vector DB é o oposto disso: indexa tudo, busca por similaridade, devolve top-k, confia no resultado. O Claude Code escolheu o caminho conservador. Indexa pouco, busca por palavra, devolve pista, e desconfia até bater o olho no fato real.
 
--- React Homepage
+A estratégia inteira tem duas camadas. Dentro da sessão, contexto generoso mais grep mais compactação inteligente (`microcompact`, `context collapse`, `autocompact`). Entre sessões, um subagente que consolida memória de forma assíncrona, usando grep nos transcripts e tratando o resultado como dica, não como verdade. Embedding e vector DB não aparecem em nenhum dos dois lugares. A escolha consciente foi leitor inteligente comendo texto bruto, não leitor burro consumindo top-k de embedding.
 
-It may sound pretty straightforward. But I have seen many cases where people write the data fetching, reshaping logic right in the place where it's consumed. For example, fetching data inside a React component, in the useEffect block right above the rendering, or performing data mapping/transforming once they got the response from the server side.
+A lição prática pro nosso debate é simples. Os agentes mais avançados do mercado tão indo na direção de contexto generoso, busca lexical e compactação inteligente, não na direção de pipeline RAG clássico. Se a Anthropic, com toda a infraestrutura e talento que tem, escolheu esse caminho pra Claude Code, a gente que tá construindo aplicação interna com uma fração do orçamento deveria pelo menos considerar a mesma direção.
 
-useEffect(() => {
-  fetch("https://address.service/api")
-    .then((res) => res.json())
-    .then((data) => {
-      const addresses = data.map((item) => ({
-        street: item.streetName,
-        address: item.streetAddress,
-        postcode: item.postCode,
-      }));
+## Onde a história começou a virar
 
-      setAddresses(addresses);
-    });
-}, []);
+Quando o teto era 32k de contexto, retrieval era o gargalo do problema inteiro. Você tinha que pré-filtrar agressivo, porque qualquer coisa que entrasse na janela era espaço sagrado. Vector DB foi a única forma decente de fazer essa pré-filtragem semântica. A lógica era: “o leitor (LLM) é caro e burro, então o retriever tem que ser inteligente e seletivo”.
 
-// the actual rendering...
+Hoje a equação virou. O leitor agora é o cara mais inteligente da mesa, e a janela cresceu pra caber documento inteiro. Aí o retriever pode (e talvez deva) voltar pra ser burro. Quanto mais burro, melhor. Você quer alta cobertura e baixa precisão, e deixa o modelo fazer a parte fina. Grep faz exatamente isso. BM25 também. E ripgrep voa em cima de milhões de linhas sem pestanejar.
 
-Perhaps because there is yet to be a universal standard in the frontend world, or it's just a bad programming habit. Frontend applications should not be treated too differently from regular software applications. In the frontend world, you still use separation of concerns in general to arrange the code structure. And all the proven useful design patterns still apply.
+E não é só achismo meu. Os benchmarks BEIR já mostraram faz tempo que BM25 bate ou empata com vários retrievers densos quando o domínio sai de onde os embeddings foram treinados. A própria Anthropic publicou um post sobre [Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval) basicamente dizendo a mesma coisa: sinal lexical mais julgamento de LLM bate embedding puro na maior parte das tarefas de conhecimento. E olha o Claude Code, a ferramenta que eu uso todo dia há 500 horas: ele navega o repositório com `Glob` e `Grep`. Sem vector DB, sem embedding, sem LangChain. Funciona ridiculamente bem.
 
-Welcome to the real world React application
+## Os problemas reais do vector database que ninguém anuncia
 
-Most developers were impressed by React's simplicity and the idea that a user interface can be expressed as a pure function to map data into the DOM. And to a certain extent, it IS.
+A propaganda de vector DB vende o sonho da busca semântica perfeita. A realidade é mais bagunçada.
 
-But developers start to struggle when they need to send a network request to a backend or perform page navigation, as these side effects make the component less “pure”. And once you consider these different states (either global state or local state), things quickly get complicated, and the dark side of the user interface emerges.
+Falsos vizinhos é o primeiro. Cosine similarity premia similaridade tópica, não relevância. Você pergunta “como tratamos erro de autenticação” e o DB devolve todo chunk que menciona autenticação. O chunk que efetivamente responde pode estar em décimo lugar, ou nem ter aparecido porque o redator do doc usou “login” em vez de “auth”.
 
-Apart from the user interface
+Chunking é o segundo, e é um desastre disfarçado. Janela de 512 tokens, overlap de 64, parece razoável até você perceber que sua tabela importante foi cortada no meio, a definição de uma função ficou separada do uso, e o pedaço da documentação com o comando exato ficou órfão sem o contexto da seção. A fronteira do chunk costuma ser exatamente onde a resposta morava.
 
-React itself doesn’t care much about where to put calculation or business logic, which is fair as it’s only a library for building user interfaces. And beyond that view layer, a frontend application has other parts as well. To make the application work, you will need a router, local storage, cache at different levels, network requests, 3rd-party integrations, 3rd-party login, security, logging, performance tuning, etc.
+Quando falha, falha sem deixar pista. Quando o BM25 não acha, você sabe o porquê: a palavra não tá lá. Quando o vector DB devolve lixo, você recebe um chunk plausível e errado, sem nenhum sinal diagnóstico. Boa sorte debugando isso em produção às duas da manhã.
 
-With all this extra context, trying to squeeze everything into React components or hooks is generally not a good idea. The reason is mixing concepts in one place generally leads to more confusion. At first, the component sets up some network request for order status, and then there is some logic to trim off leading space from a string and then navigate somewhere else. The reader must constantly reset their logic flow and jump back and forth from different levels of details.
+Índice envelhece. Cada update do documento pede re-embedding. Se você tem 10 mil docs e uns 200 mudam por dia, isso vira processo de batch, monitoramento, fila, retry, custo de API de embedding, e uma janela de inconsistência inevitável entre o que tá no disco e o que tá no índice. Grep não tem nada disso. Arquivo mudou? Próxima query já vê.
 
-Packing all the code into components may work in small applications like a Todo or one-form application. Still, the efforts to understand such application will be significant once it reaches a certain level. Not to mention adding new features or fixing existing defects.
+E tem o custo de operação que ninguém soma. Pinecone cobra por vector. Weaviate pede cluster pra manter. pgvector evita servidor novo mas você continua com schema, índice e pipeline de re-embedding. Cada uma dessas coisas pede tempo de engenheiro, monitoramento, teste, deploy. Tudo isso pra fazer uma busca que muitas vezes o `rg` resolve em 200ms.
 
-If we could separate different concerns into files or folders with structures, the mental load required to understand the application would be significantly reduced. And you only have to focus on one thing at a time. Luckily, there are already some well-proven patterns back to the pre-web time. These design principles and patterns are explored and discussed well to solve the common user interface problems - but in the desktop GUI application context.
+## Comparando a complexidade
 
-Martin Fowler has a great summary of the concept of view-model-data layering.
+Olha o desenho:
 
-On the whole I've found this to be an effective form of modularization for many applications and one that I regularly use and encourage. It's biggest advantage is that it allows me to increase my focus by allowing me to think about the three topics (i.e., view, model, data) relatively independently.
+![Complexidade: RAG clássico vs grep + contexto longo](https://new-uploads-akitaonrails.s3.us-east-2.amazonaws.com/2026/04/06/rag/rag-vs-grep-complexity.png)
 
--- Martin Fowler
+De um lado, oito etapas, quatro ou cinco serviços, índice externo que precisa ser mantido e atualizado. Do outro, quatro etapas, zero infraestrutura nova. Não é caricatura: é literalmente o que você precisa montar pra cada caso.
 
-Layered architectures have been used to cope the challenges in large GUI applications, and certainly we can use these established patterns of front-end organization in our “React applications”.
+A pergunta honesta é: a coluna da esquerda compensa? Em 2023, sim, porque a coluna da direita não existia (não tinha LLM com janela de 200k). Em 2026, na maior parte dos casos, não.
 
-The evolution of a React application
+## Prós e contras de cada lado
 
-For small or one-off projects, you might find that all logic is just written inside React components. You may see one or only a few components in total. The code looks pretty much like HTML, with only some variable or state used to make the page “dynamic”. Some might send requests to fetch data on useEffect after the components render.
+### RAG clássico (vector DB)
 
-As the application grows, and more and more code are added to codebase. Without a proper way to organise them, soon the codebase will turn into unmaintainable state, meaning that even adding small features can be time-consuming as developers need more time to read the code.
+**A favor:**
 
-So I’ll list a few steps that can help to relief the maintainable problem. It generally require a bit more efforts, but it will pay off to have the structure in you application. Let’s have a quick review of these steps to build front-end applications that scale.
+- Funciona pra bases de documento gigantes, da ordem de centenas de GB, onde nem `rg` resolve sem indexação prévia
+- Acerta consultas paráfrase pesada e cross-lingual (“como cancelo” vs “encerramento de assinatura”), onde o vocabulário do usuário não bate com o do documento
+- Funciona pra modalidades não-textuais (imagem, áudio) onde grep não tem o que olhar
+- Economiza tokens de input se você tá apertado de orçamento ou de latência absoluta
 
-Single Component Application
+**Contra:**
 
-It can be called pretty much a Single Component Application:
+- Stack complexa: embedding, vector DB, chunking, reranker, pipeline de re-indexação
+- Falhas opacas, difíceis de debugar
+- Chunking destrói contexto de tabelas, código, definições longas
+- Overhead operacional (índice, fila, monitoramento, custo de re-embedding)
+- A busca semântica vendida no marketing raramente funciona como o marketing promete
 
-Figure 1: Single Component Application
+### Grep + contexto longo
 
-But soon, you realise one single component requires a lot of time just to read what is going on. For example, there is logic to iterate through a list and generate each item. Also, there is some logic for using 3rd-party components with only a few configuration code, apart from other logic.
+**A favor:**
 
-Multiple Component Application
+- Praticamente zero infraestrutura nova: ripgrep, sqlite, ou um simples `LIKE` em Postgres
+- Sempre fresco: o arquivo mudou, a próxima query já vê
+- Falhas transparentes: a palavra está ou não está
+- Carrega o documento em pedaços generosos, o modelo faz a filtragem fina com semântica de verdade
+- Mais barato em dev e ops, mais barato pra pivotar de domínio
 
-You decided to split the component into several components, with these structures reflecting what’s happening on the result HTML is a good idea, and it helps you to focus on one component at a time.
+**Contra:**
 
-Figure 2: Multiple Component Application
+- Não escala pra terabytes de texto bruto sem alguma indexação
+- Sofre quando o usuário usa vocabulário muito diferente do documento
+- Não funciona pra modalidade não-textual
+- Latência por query é maior em termos absolutos (carregar 100k tokens sempre custa mais que carregar 5k)
+- Custo de input por query é mais alto se você não tem prompt caching
 
-And as your application grows, apart from the view, there are things like sending network requests, converting data into different shapes for the view to consume, and collecting data to send back to the server. And having this code inside components doesn’t feel right as they’re not really about user interfaces. Also, some components have too many internal states.
+## Mas e o custo?
 
-State management with hooks
+Esse é o argumento que mais me jogam na cara quando defendo a tese do “carrega tudo no contexto”. “Vai ficar caríssimo, 200k tokens de input por query é absurdo.” Vamos fazer a conta de verdade.
 
-It’s a better idea to split this logic into a separate places. Luckily in React, you can define your own hooks. This is a great way to share these state and the logic of whenever states change.
+No [meu artigo do benchmark de LLMs de ontem](/2026/04/05/testando-llms-open-source-e-comerciais-quem-consegue-bater-o-claude-opus/) eu mapeei o preço por token de cada modelo. Pega o Claude Sonnet 4.6: $3 por milhão de tokens de input, $15 por milhão de output. Pega o GLM 5 (que provei que funciona): $0.60 input, $2.20 output. Pega o GPT 5.4 Pro lá em cima: $15 input, $180 output (esse aí machuca, eu sei).
 
-Figure 3: State management with hooks
+Antes de fazer a conta de “200k tokens” em dólar, vale aterrissar isso em algo tangível, porque “100k tokens” não diz nada pra ninguém. Token, na média, é mais ou menos 0,75 palavra em inglês (em português é parecido, talvez um pouco mais por causa de palavras maiores). Então, traduzindo:
 
-That’s awesome! You have a bunch of elements extracted from your single component application, and you have a few pure presentational components and some reusable hooks that make other components stateful. The only problem is that in hooks, apart from the side effect and state management, some logic doesn’t seem to belong to the state management but pure calculations.
+- **100k tokens** ≈ 75 mil palavras ≈ um romance curto inteiro, tipo *O Velho e o Mar* do Hemingway com sobra, ou uns três artigos longos da Wikipedia juntos.
+- **200k tokens** ≈ 150 mil palavras ≈ um romance grande, tipo *Crime e Castigo* na íntegra, ou metade do primeiro livro de *Game of Thrones* (que tem ~298k palavras, daria uns 400k tokens).
+- **400k tokens** ≈ 300 mil palavras ≈ *A Game of Thrones* completo, livro 1 da série inteiro na janela.
+- **1M tokens** ≈ 750 mil palavras ≈ a trilogia inteira de *O Senhor dos Anéis* mais *O Hobbit*, ou a Bíblia inteira (King James ~783k palavras, daria por volta de 1M tokens), ou cerca de dois livros e meio de *Game of Thrones* empilhados.
 
-Business models emerged
+Então quando eu falo “joga 200k tokens de input no modelo”, o que isso significa no mundo real é “joga *Crime e Castigo* inteiro como contexto da pergunta”. É muita coisa. E é exatamente isso que torna o argumento desse post viável: os modelos de hoje conseguem ler um romance inteiro de uma vez e ainda responder uma pergunta específica sobre ele. Em 2023, isso era ficção científica. Em 2026, virou o caso base.
 
-So you’ve started to become aware that extracting this logic into yet another place can bring you many benefits. For example, with that split, the logic can be cohesive and independent of any views. Then you extract a few domain objects.
+Imagina então uma query que joga 200k tokens de input (lá vai *Crime e Castigo* de novo) e produz 2k tokens de output (umas três páginas de resposta):
 
-These simple objects can handle data mapping (from one format to another), check nulls and use fallback values as required. Also, as the amount of these domain objects grows, you find you need some inheritance or polymorphism to make things even cleaner. Thus you applied many design patterns you found helpful from other places into the front-end application here.
+| Modelo | Input ($) | Output ($) | Total por query |
+| --- | --- | --- | --- |
+| Claude Sonnet 4.6 | $0.60 | $0.03 | **$0.63** |
+| Claude Opus 4.6 | $3.00 | $0.15 | **$3.15** |
+| GLM 5 | $0.12 | $0.0044 | **$0.12** |
+| Gemini 3.1 Pro | $0.40 | $0.024 | **$0.42** |
+| GPT 5.4 Pro | $3.00 | $0.36 | **$3.36** |
 
-Figure 4: Business models
+Agora bota prompt caching no meio. O Claude tem cache que faz o input cacheado custar uma fração do preço cheio (na ordem de 10%, dependendo do modelo). O Gemini tem mecanismo similar. Quando você faz uma sequência de queries em cima do mesmo dump de 200k tokens, o custo das queries seguintes despenca pra centavos. Com Sonnet cacheado, dá pra falar em uns $0.10 por query subsequente sem inventar muito.
 
-Layered frontend application
+Agora compara isso com o custo de manter um Pinecone, ou um Weaviate, ou um pgvector. Ignorando o preço da assinatura em si (que varia bastante), você precisa de engenheiro pra montar a pipeline, manter, monitorar, lidar com falha de embedding, refazer chunking quando o domínio muda. Conservadoramente, fala em algo entre 40 e 80 horas de engenharia pra deixar a coisa estável. A R$ 200/hora, isso é entre R$ 8.000 e R$ 16.000. Em USD, na faixa de $1.600 a $3.200 só pra colocar de pé.
 
-The application keeps evolving, and then you find some patterns emerge. There are a bunch of objects that do not belong to any user interface, and they also don’t care about whether the underlying data is from remote service, local storage or cache. And then, you want to split them into different layers. Here is a detailed explanation about the layer splitting Presentation Domain Data Layering.
+Com $3.200, no Sonnet 4.6 com prompt caching, você roda algo na ordem de 30 mil queries de 200k tokens. Trinta mil queries, dependendo da escala do projeto, dão vários meses ou até um ano inteiro de uma ferramenta interna média. E você não pagou engenheiro pra montar pipeline. Não tem servidor de vector DB pra manter. Se o documento mudar, o sistema já vê na próxima query.
 
-Figure 5: Layered frontend application
+A conta do “RAG é mais barato em tokens” ignora que token é a coisa mais barata da equação inteira. Engenheiro custa caro, servidor custa caro, bug em produção custa muito caro. Token virou commodity, e tá ficando mais barato a cada release de modelo novo.
 
-The above evolution process is a high-level overview, and you should have a taste of how you should structure your code or at least what the direction should be. However, there will be many details you need to consider before applying the theory in your application.
+O argumento clássico do RAG era “modelo é caro, retrieval é barato”. Hoje é o oposto: modelo é a parte barata da pilha, retrieval inteligente é o que sai caro pra montar e manter.
 
-In the following sections, I’ll walk you through a feature I extracted from a real project to demonstrate all the patterns and design principles I think useful for big frontend applications.
+## Os pontos onde a tese não cola
 
-Introduction of the Payment feature
+Não quero parecer fanboy. Tem casos onde RAG clássico ainda ganha:
 
-I’m using an oversimplified online ordering application as a starting point. In this application, a customer can pick up some products and add them to the order, and then they will need to select one of the payment methods to continue.
+1. **Bases gigantescas.** Se você tem 500 GB de texto bruto, nem `rg` resolve em tempo aceitável. Aí precisa de algum tipo de indexação. Pode ser BM25 indexado (Tantivy, Elasticsearch), pode ser vector DB. Mas observa: a primeira opção ainda é lexical, não vetorial.
+2. **Vocabulário muito disperso.** Suporte ao cliente, onde o usuário fala “tô sem net” e a documentação fala “perda de conectividade na camada física”. BM25 não pega isso. Embedding pega. Aí vector DB ganha o ponto.
+3. **Modalidade não-textual.** Busca de imagem por imagem, áudio por áudio. Embedding é obrigatório.
+4. **Latência absoluta crítica.** Se você precisa responder em 100ms e tem 5k de orçamento de input, dump generoso não cabe. Aí pré-filtragem é necessária.
+5. **Compliance e auditoria.** Se você precisa provar que tal documento foi consultado pra responder tal query, ter chunks indexados rastreáveis ajuda. Dump de 200k de contexto é mais opaco em auditoria.
 
-Figure 6: Payment section
+Pra esses casos, RAG clássico continua fazendo sentido. Mas observa o tamanho da lista. São casos específicos. O caso geral, tipo “chat com nossos documentos internos” ou “pergunte ao manual do produto”, quase todo cai no balde do “grep + contexto longo resolve melhor”.
 
-These payment method options are configured on the server side, and customers from different countries may see other options. For example, Apple Pay may only be popular in some countries. The radio buttons are data-driven - whatever is fetched from the backend service will be surfaced. The only exception is that when no configured payment methods are returned, we don’t show anything and treat it as “pay in cash” by default.
+## Lazy retrieval: a receita que eu defendo
 
-For simplicity, I’ll skip the actual payment process and focus on the Payment component. Let’s say that after reading the React hello world doc and a couple of stackoverflow searches, you came up with some code like this:
+Se eu fosse construir uma ferramenta de “chat com docs” hoje, do zero, seria mais ou menos assim:
 
-src/Payment.tsx…
+1. **Mantém os documentos brutos.** Markdown, PDF convertido, código, o que for. No disco mesmo, organizado em pastas que façam sentido pro domínio.
+2. **Filtro lexical rápido.** `ripgrep` com regex, ou BM25 com Tantivy/SQLite FTS5, ou um `LIKE` no Postgres se já tiver. Devolve uns 100-300 hits.
+3. **Carrega generosamente.** Pega não só o trecho que bateu, mas o arquivo inteiro, ou uma janela grande em volta. Joga tudo no contexto.
+4. **Deixa o LLM fazer a parte fina.** Passa a pergunta original, manda o modelo encontrar o que importa, descartar o resto, e responder com citações.
+5. **(Opcional) Adiciona embeddings só pra classes de query onde lexical falha**, depois de você ter dados reais mostrando que falha.
 
-  export const Payment = ({ amount }: { amount: number }) => {
-    const [paymentMethods, setPaymentMethods] = useState<LocalPaymentMethod[]>(
-      []
-    );
-  
-    useEffect(() => {
-      const fetchPaymentMethods = async () => {
-        const url = "https://online-ordering.com/api/payment-methods";
-  
-        const response = await fetch(url);
-        const methods: RemotePaymentMethod[] = await response.json();
-  
-        if (methods.length > 0) {
-          const extended: LocalPaymentMethod[] = methods.map((method) => ({
-            provider: method.name,
-            label: `Pay with ${method.name}`,
-          }));
-          extended.push({ provider: "cash", label: "Pay in cash" });
-          setPaymentMethods(extended);
-        } else {
-          setPaymentMethods([]);
-        }
-      };
-  
-      fetchPaymentMethods();
-    }, []);
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <div>
-          {paymentMethods.map((method) => (
-            <label key={method.provider}>
-              <input
-                type="radio"
-                name="payment"
-                value={method.provider}
-                defaultChecked={method.provider === "cash"}
-              />
-              <span>{method.label}</span>
-            </label>
-          ))}
-        </div>
-        <button>${amount}</button>
-      </div>
-    );
-  };
-
-The code above is pretty typical. You might have seen it in the get started tutorial somewhere. And it's not necessary bad. However, as we mentioned above, the code has mixed different concerns all in a single component and makes it a bit difficult to read.
-
-The problem with the initial implementation
-
-The first issue I would like to address is how busy the component is. By that, I mean Payment deals with different things and makes the code difficult to read as you have to switch context in your head as you read.
-
-In order to make any changes you have to comprehend how to initialise network request , how to map the data to a local format that the component can understand , how to render each payment method , and the rendering logic for Payment component itself .
-
-src/Payment.tsx…
-
-  export const Payment = ({ amount }: { amount: number }) => {
-    const [paymentMethods, setPaymentMethods] = useState<LocalPaymentMethod[]>(
-      []
-    );
-  
-    useEffect(() => {
-      const fetchPaymentMethods = async () => {
-        const url = "https://online-ordering.com/api/payment-methods";
-  
-        const response = await fetch(url);
-        const methods: RemotePaymentMethod[] = await response.json();
-  
-        if (methods.length > 0) {
-          const extended: LocalPaymentMethod[] = methods.map((method) => ({
-            provider: method.name,
-            label: `Pay with ${method.name}`,
-          }));
-          extended.push({ provider: "cash", label: "Pay in cash" });
-          setPaymentMethods(extended);
-        } else {
-          setPaymentMethods([]);
-        }
-      };
-  
-      fetchPaymentMethods();
-    }, []);
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <div>
-          {paymentMethods.map((method) => (
-            <label key={method.provider}>
-              <input
-                type="radio"
-                name="payment"
-                value={method.provider}
-                defaultChecked={method.provider === "cash"}
-              />
-              <span>{method.label}</span>
-            </label>
-          ))}
-        </div>
-        <button>${amount}</button>
-      </div>
-    );
-  };
-
-It's not a big problem at this stage for this simple example. However, as the code gets bigger and more complex, we'll need to refactoring them a bit.
-
-It’s good practice to split view and non-view code into separate places. The reason is, in general, views are changing more frequently than non-view logic. Also, as they deal with different aspects of the application, separating them allows you to focus on a particular self-contained module that is much more manageable when implementing new features.
-
-The split of view and non-view code
-
-In React, we can use a custom hook to maintain state of a component while keeping the component itself more or less stateless. We can use Extract Function to create a function called usePaymentMethods (the prefix use is a convention in React to indicate the function is a hook and handling some states in it):
-
-src/Payment.tsx…
-
-  const usePaymentMethods = () => {
-    const [paymentMethods, setPaymentMethods] = useState<LocalPaymentMethod[]>(
-      []
-    );
-  
-    useEffect(() => {
-      const fetchPaymentMethods = async () => {
-        const url = "https://online-ordering.com/api/payment-methods";
-  
-        const response = await fetch(url);
-        const methods: RemotePaymentMethod[] = await response.json();
-  
-        if (methods.length > 0) {
-          const extended: LocalPaymentMethod[] = methods.map((method) => ({
-            provider: method.name,
-            label: `Pay with ${method.name}`,
-          }));
-          extended.push({ provider: "cash", label: "Pay in cash" });
-          setPaymentMethods(extended);
-        } else {
-          setPaymentMethods([]);
-        }
-      };
-  
-      fetchPaymentMethods();
-    }, []);
-  
-    return {
-      paymentMethods,
-    };
-  };
-
-This returns a paymentMethods array (in type LocalPaymentMethod) as internal state and is ready to be used in rendering. So the logic in Payment can be simplified as:
-
-src/Payment.tsx…
-
-  export const Payment = ({ amount }: { amount: number }) => {
-    const { paymentMethods } = usePaymentMethods();
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <div>
-          {paymentMethods.map((method) => (
-            <label key={method.provider}>
-              <input
-                type="radio"
-                name="payment"
-                value={method.provider}
-                defaultChecked={method.provider === "cash"}
-              />
-              <span>{method.label}</span>
-            </label>
-          ))}
-        </div>
-        <button>${amount}</button>
-      </div>
-    );
-  };
-
-This helps relieve the pain in the Payment component. However, if you look at the block for iterating through paymentMethods, it seems a concept is missing here. In other words, this block deserves its own component. Ideally, we want each component to focus on, only one thing.
-
-Split the view by extracting sub component
-
-Also, if we can make a component a pure function - meaning given any input, the output is certain - that would help us a lot in writing tests, understanding the code and even reusing the component elsewhere. After all, the smaller a component, the more likely it will be reused.
-
-We can use Extract Function again (maybe we should call it “Extract Component”, but in React, a component is a function anyway).
-
-src/Payment.tsx…
-
-  const PaymentMethods = ({
-    paymentMethods,
-  }: {
-    paymentMethods: LocalPaymentMethod[];
-  }) => (
-    <>
-      {paymentMethods.map((method) => (
-        <label key={method.provider}>
-          <input
-            type="radio"
-            name="payment"
-            value={method.provider}
-            defaultChecked={method.provider === "cash"}
-          />
-          <span>{method.label}</span>
-        </label>
-      ))}
-    </>
-  );
-
-The Payment component can use the PaymentMethods directly and thus be simplified as below:
-
-src/Payment.tsx…
-
-  export const Payment = ({ amount }: { amount: number }) => {
-    const { paymentMethods } = usePaymentMethods();
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <PaymentMethods paymentMethods={paymentMethods} />
-        <button>${amount}</button>
-      </div>
-    );
-  };
-
-Note that PaymentMethods is a pure function (a pure component) that doesn’t have any state. It’s basically a string formatting function.
-
-Data modelling to encapsulate logic
-
-So far, the changes we have made are all about splitting view and non-view code into different places. It works well. The hook handles data fetching and reshaping. Both Payment and PaymentMethods are relatively small and easy to understand.
-
-However, if you look closely, there is still room for improvement. To start with, in the pure function component PaymentMethods, we have a bit of logic to check if a payment method should be checked by default:
-
-src/Payment.tsx…
-
-  const PaymentMethods = ({
-    paymentMethods,
-  }: {
-    paymentMethods: LocalPaymentMethod[];
-  }) => (
-    <>
-      {paymentMethods.map((method) => (
-        <label key={method.provider}>
-          <input
-            type="radio"
-            name="payment"
-            value={method.provider}
-            defaultChecked={method.provider === "cash"}
-          />
-          <span>{method.label}</span>
-        </label>
-      ))}
-    </>
-  );
-
-These test statements in a view can be considered a logic leak, and gradually they can be scatted in different places and make modification harder.
-
-Another point of potential logic leakage is in the data conversion where we fetch data:
-
-src/Payment.tsx…
-
-  const usePaymentMethods = () => {
-    const [paymentMethods, setPaymentMethods] = useState<LocalPaymentMethod[]>(
-      []
-    );
-  
-    useEffect(() => {
-      const fetchPaymentMethods = async () => {
-        const url = "https://online-ordering.com/api/payment-methods";
-  
-        const response = await fetch(url);
-        const methods: RemotePaymentMethod[] = await response.json();
-  
-        if (methods.length > 0) {
-          const extended: LocalPaymentMethod[] = methods.map((method) => ({
-            provider: method.name,
-            label: `Pay with ${method.name}`,
-          }));
-          extended.push({ provider: "cash", label: "Pay in cash" });
-          setPaymentMethods(extended);
-        } else {
-          setPaymentMethods([]);
-        }
-      };
-  
-      fetchPaymentMethods();
-    }, []);
-  
-    return {
-      paymentMethods,
-    };
-  };
-
-Note the anonymous function inside methods.map does the conversion silently, and this logic, along with the method.provider === “cash” above can be extracted into a class.
-
-We could have a class PaymentMethod with the data and behaviour centralised into a single place:
-
-src/PaymentMethod.ts…
-
-  class PaymentMethod {
-    private remotePaymentMethod: RemotePaymentMethod;
-  
-    constructor(remotePaymentMethod: RemotePaymentMethod) {
-      this.remotePaymentMethod = remotePaymentMethod;
-    }
-  
-    get provider() {
-      return this.remotePaymentMethod.name;
-    }
-  
-    get label() {
-      if(this.provider === 'cash') {
-        return `Pay in ${this.provider}`
-      }
-      return `Pay with ${this.provider}`;
-    }
-  
-    get isDefaultMethod() {
-      return this.provider === "cash";
-    }
-  }
-
-With the class, I can define the default cash payment method:
-
-const payInCash = new PaymentMethod({ name: "cash" });
-
-And during the conversion - after the payment methods are fetched from the remote service - I can construct the PaymentMethod object in-place. Or even extract a small function called convertPaymentMethods:
-
-src/usePaymentMethods.ts…
-
-  const convertPaymentMethods = (methods: RemotePaymentMethod[]) => {
-    if (methods.length === 0) {
-      return [];
-    }
-  
-    const extended: PaymentMethod[] = methods.map(
-      (method) => new PaymentMethod(method)
-    );
-    extended.push(payInCash);
-  
-    return extended;
-  };
-
-Also, in the PaymentMethods component, we don’t use the method.provider === “cash”to check anymore, and instead call the getter:
-
-src/PaymentMethods.tsx…
-
-  export const PaymentMethods = ({ options }: { options: PaymentMethod[] }) => (
-    <>
-      {options.map((method) => (
-        <label key={method.provider}>
-          <input
-            type="radio"
-            name="payment"
-            value={method.provider}
-            defaultChecked={method.isDefaultMethod}
-          />
-          <span>{method.label}</span>
-        </label>
-      ))}
-    </>
-  );
-
-Now we’re restructuring our Payment component into a bunch of smaller parts that work together to finish the work.
-
-Figure 7: Refactored Payment with more parts that can be composed easily
-
-The benefits of the new structure
-Having a class encapsulates all the logic around a payment method. It’s a domain object and doesn’t have any UI-related information. So testing and potentially modifying logic here is much easier than when embedded in a view.
-The new extracted component PaymentMethods is a pure function and only depends on a domain object array, which makes it super easy to test and reuse elsewhere. We might need to pass in a onSelect callback to it, but even in that case, it’s a pure function and doesn’t have to touch any external states.
-Each part of the feature is clear. If a new requirement comes, we can navigate to the right place without reading all the code.
-
-I have to make the example in this article sufficiently complex so that many patterns can be extracted. All these patterns and principles are there to help simplify our code's modifications.
-
-New requirement: donate to a charity
-
-Let’s examine the theory here with some further changes to the application. The new requirement is that we want to offer an option for customers to donate a small amount of money as a tip to a charity along with their order.
-
-For example, if the order amount is $19.80, we ask if they would like to donate $0.20. And if a user agrees to donate it, we’ll show the total number on the button.
-
-Figure 8: Donate to a charity
-
-Before we make any changes, let's have a quick look at the current code structure. I prefer have different parts in their folder so it's easy for me to navigate when it grows bigger.
-
-      src
-      ├── App.tsx
-      ├── components
-      │   ├── Payment.tsx
-      │   └── PaymentMethods.tsx
-      ├── hooks
-      │   └── usePaymentMethods.ts
-      ├── models
-      │   └── PaymentMethod.ts
-      └── types.ts
-      
-
-App.tsx is the main entry, it uses Payment component, and Payment uses PaymentMethods for rendering different payment options. The hook usePaymentMethods is responsible for fetching data from remote service and then convert it to a PaymentMethod domain object that is used to hold label and the isDefaultChecked flag.
-
-Internal state: agree to donation
-
-To make these changes in Payment, we need a boolean state agreeToDonate to indicate whether a user selected the checkbox on the page.
-
-src/Payment.tsx…
-
-  const [agreeToDonate, setAgreeToDonate] = useState<boolean>(false);
-
-  const { total, tip } = useMemo(
-    () => ({
-      total: agreeToDonate ? Math.floor(amount + 1) : amount,
-      tip: parseFloat((Math.floor(amount + 1) - amount).toPrecision(10)),
-    }),
-    [amount, agreeToDonate]
-  );
-
-The function Math.floor will round the number down so we can get the correct amount when the user selects agreeToDonate, and the difference between the rounded-up value and the original amount will be assigned to tip.
-
-And for the view, the JSX will be a checkbox plus a short description:
-
-src/Payment.tsx…
-
-  return (
-    <div>
-      <h3>Payment</h3>
-      <PaymentMethods options={paymentMethods} />
-      <div>
-        <label>
-          <input
-            type="checkbox"
-            onChange={handleChange}
-            checked={agreeToDonate}
-          />
-          <p>
-            {agreeToDonate
-              ? "Thanks for your donation."
-              : `I would like to donate $${tip} to charity.`}
-          </p>
-        </label>
-      </div>
-      <button>${total}</button>
-    </div>
-  );
-
-With these new changes, our code starts handling multiple things again. It’s essential to stay alert for potential mixing of view and non-view code. If you find any unnecessary mixing, look for ways to split them.
-
-Note that it's not a set-in-stone rule. Keep things all together nice and tidy for small and cohesive components, so you don't have to look in multiple places to understand the overall behaviour. Generally, you should be aware to avoid the component file growing too big to comprehend.
-
-Extract a hook to the rescue
-
-Here we need an object to calculate the tip and amount, and whenever a user changes their mind, the object should return the updated amount and tip.
-
-So it sounds like we need an object that:
-
-takes the original amount as input
-returns total and tip whenever agreeToDonate changed.
-
-It sounds like a perfect place for a custom hook again, right?
-
-src/hooks/useRoundUp.ts…
-
-  export const useRoundUp = (amount: number) => {
-    const [agreeToDonate, setAgreeToDonate] = useState<boolean>(false);
-  
-    const {total, tip} = useMemo(
-      () => ({
-        total: agreeToDonate ? Math.floor(amount + 1) : amount,
-        tip: parseFloat((Math.floor(amount + 1) - amount).toPrecision(10)),
-      }),
-      [amount, agreeToDonate]
-    );
-  
-    const updateAgreeToDonate = () => {
-      setAgreeToDonate((agreeToDonate) => !agreeToDonate);
-    };
-  
-    return {
-      total,
-      tip,
-      agreeToDonate,
-      updateAgreeToDonate,
-    };
-  };
-
-And in the view, we can call this hook with the initial amount and have all these states defined externally. The updateAgreeToDonate function can update the value in the hook and trigger a re-render.
-
-src/components/Payment.tsx…
-
-  export const Payment = ({ amount }: { amount: number }) => {
-    const { paymentMethods } = usePaymentMethods();
-  
-    const { total, tip, agreeToDonate, updateAgreeToDonate } = useRoundUp(amount);
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <PaymentMethods options={paymentMethods} />
-        <div>
-          <label>
-            <input
-              type="checkbox"
-              onChange={updateAgreeToDonate}
-              checked={agreeToDonate}
-            />
-            <p>{formatCheckboxLabel(agreeToDonate, tip)}</p>
-          </label>
-        </div>
-        <button>${total}</button>
-      </div>
-    );
-  };
-
-Note that We can also extract the message formatting part into the helper function formatCheckboxLabel to simplify the code in component.
-
-const formatCheckboxLabel = (agreeToDonate: boolean, tip: number) => {
-  return agreeToDonate
-    ? "Thanks for your donation."
-    : `I would like to donate $${tip} to charity.`;
-};
-
-And the Payment component can be simplified a lot - the states are now fully managed in hook useRoundUp.
-
-You can imagine a hook as a state machine behind a view whenever some change happens in the UI, say, a checkbox change event. The event will be sent to the state machine to generate a new state, and the new state will trigger a re-render.
-
-So the pattern here is that we should move state management away from a component and try to make it a presentational function (so it can be easily tested and reused just like these humble utility functions). The React hook was designed to share reusable logic from different components, but I find it beneficial even when there is only one use as it helps you to focus on rendering in a component and keeping state and data in hooks.
-
-As the donation checkbox becomes more independent, we can move it into its own pure function component.
-
-src/components/DonationCheckbox.tsx…
-
-  const DonationCheckbox = ({
-    onChange,
-    checked,
-    content,
-  }: DonationCheckboxProps) => {
-    return (
-      <div>
-        <label>
-          <input type="checkbox" onChange={onChange} checked={checked} />
-          <p>{content}</p>
-        </label>
-      </div>
-    );
-  };
-
-While in Payment, thanks to the declarative UI in React, it’s pretty straightforward to read the code like a humble piece of HTML.
-
-src/components/Payment.tsx…
-
-  export const Payment = ({ amount }: { amount: number }) => {
-    const { paymentMethods } = usePaymentMethods();
-  
-    const { total, tip, agreeToDonate, updateAgreeToDonate } = useRoundUp(amount);
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <PaymentMethods options={paymentMethods} />
-        <DonationCheckbox
-          onChange={updateAgreeToDonate}
-          checked={agreeToDonate}
-          content={formatCheckboxLabel(agreeToDonate, tip)}
-        />
-        <button>${total}</button>
-      </div>
-    );
-  };
-
-And at this point, our code structure starts to resemble something like the diagram below. Note how different parts focus on their own tasks and come together to make the process work.
-
-Figure 9: Refactored Payment with donation
-
-More changes about round-up logic
-
-The round-up looks good so far, and as the business expands to other countries, it comes with new requirements. The same logic doesn’t work in Japan market as 0.1 Yen is too small as a donation, and it needs to round up to the nearest hundred for the Japanese currency. And for Denmark, it needs to round up to the nearest tens.
-
-It sounds like an easy fix. All I need is a countryCode passed into the Payment component, right?
-
-<Payment amount={3312} countryCode="JP" />;
-
-And because all of the logic is now defined in the useRoundUp hook, I can also pass the countryCode through to the hook.
-
-const useRoundUp = (amount: number, countryCode: string) => {
-  //...
-
-  const { total, tip } = useMemo(
-    () => ({
-      total: agreeToDonate
-        ? countryCode === "JP"
-          ? Math.floor(amount / 100 + 1) * 100
-          : Math.floor(amount + 1)
-        : amount,
-      //...
-    }),
-    [amount, agreeToDonate, countryCode]
-  );
-  //...
-};
-
-You will notice that the if-else can go on and on as a new countryCode is added in the useEffect block. And for the getTipMessage, we need the same if-else checks as a different country may use other currency sign (instead of a dollar sign by default):
-
-const formatCheckboxLabel = (
-  agreeToDonate: boolean,
-  tip: number,
-  countryCode: string
-) => {
-  const currencySign = countryCode === "JP" ? "¥" : "$";
-
-  return agreeToDonate
-    ? "Thanks for your donation."
-    : `I would like to donate ${currencySign}${tip} to charity.`;
-};
-
-One last thing we also need to change is the currency sign on the button:
-
-<button>
-  {countryCode === "JP" ? "¥" : "$"}
-  {total}
-</button>;
-The shotgun surgery problem
-
-This scenario is the famous “shotgun surgery” smell we see in many places (not particularly in React applications). This essentially says that we'll have to touch several modules whenever we need to modify the code for either a bug fixing or adding a new feature. And indeed, it’s easier to make mistakes with this many changes, especially when your tests are insufficient.
-
-Figure 10: The shotgun surgery smell
-
-As illustrated above, the coloured lines indicate branches of country code checks that cross many files. In views, we’ll need to do separate things for different country code, while in hooks, we’ll need similar branches. And whenever we need to add a new country code, we’ll have to touch all these parts.
-
-For example, if we consider Denmark as a new country the business is expanding to, we’ll end up with code in many places like:
-
-const currencySignMap = {
-  JP: "¥",
-  DK: "Kr.",
-  AU: "$",
-};
-
-const getCurrencySign = (countryCode: CountryCode) =>
-  currencySignMap[countryCode];
-
-One possible solution for the problem of having branches scattered in different places is to use polymorphism to replace these switch cases or table look-up logic. We can use Extract Class on those properties and then Replace Conditional with Polymorphism.
-
-Polymorphism to the rescue
-
-The first thing we can do is examine all the variations to see what need to be extracted into a class. For example, different countries have different currency signs, so getCurrencySign can be extracted into a public interface. Also ,countries might have different round-up algorithms, thus getRoundUpAmount and getTip can go to the interface.
-
-export interface PaymentStrategy {
-  getRoundUpAmount(amount: number): number;
-
-  getTip(amount: number): number;
-}
-
-A concrete implementation of the strategy interface would be like following the code snippet: PaymentStrategyAU.
-
-export class PaymentStrategyAU implements PaymentStrategy {
-  get currencySign(): string {
-    return "$";
-  }
-
-  getRoundUpAmount(amount: number): number {
-    return Math.floor(amount + 1);
-  }
-
-  getTip(amount: number): number {
-    return parseFloat((this.getRoundUpAmount(amount) - amount).toPrecision(10));
-  }
-}
-
-Note here the interface and classes have nothing to do with the UI directly. This logic can be shared in other places in the application or even moved to backend services (if the backend is written in Node, for example).
-
-We could have subclasses for each country, and each has the country specific round-up logic. However, as function is first-class citizen in JavaScript, we can pass in the round-up algorithm into the strategy implementation to make the code less overhead without subclasses. And becaues we have only one implementation of the interface, we can use Inline Class to reduce the single-implementation-interface.
-
-src/models/CountryPayment.ts…
-
-  export class CountryPayment {
-    private readonly _currencySign: string;
-    private readonly algorithm: RoundUpStrategy;
-  
-    public constructor(currencySign: string, roundUpAlgorithm: RoundUpStrategy) {
-      this._currencySign = currencySign;
-      this.algorithm = roundUpAlgorithm;
-    }
-  
-    get currencySign(): string {
-      return this._currencySign;
-    }
-  
-    getRoundUpAmount(amount: number): number {
-      return this.algorithm(amount);
-    }
-  
-    getTip(amount: number): number {
-      return calculateTipFor(this.getRoundUpAmount.bind(this))(amount);
-    }
-  }
-
-As illustrated below, instead of depend on scattered logic in components and hooks, they now only rely on a single class PaymentStrategy. And at runtime, we can easily substitute one instance of PaymentStrategy for another (the red, green and blue square indicates different instances of PaymentStrategy class).
-
-Figure 11: Extract class to encapsulate logic
-
-And the useRoundUp hook, the code could be simplified as:
-
-src/hooks/useRoundUp.ts…
-
-  export const useRoundUp = (amount: number, strategy: PaymentStrategy) => {
-    const [agreeToDonate, setAgreeToDonate] = useState<boolean>(false);
-  
-    const { total, tip } = useMemo(
-      () => ({
-        total: agreeToDonate ? strategy.getRoundUpAmount(amount) : amount,
-        tip: strategy.getTip(amount),
-      }),
-      [agreeToDonate, amount, strategy]
-    );
-  
-    const updateAgreeToDonate = () => {
-      setAgreeToDonate((agreeToDonate) => !agreeToDonate);
-    };
-  
-    return {
-      total,
-      tip,
-      agreeToDonate,
-      updateAgreeToDonate,
-    };
-  };
-
-In the Payment component, we pass the strategy from props through to the hook:
-
-src/components/Payment.tsx…
-
-  export const Payment = ({
-    amount,
-    strategy = new PaymentStrategy("$", roundUpToNearestInteger),
-  }: {
-    amount: number;
-    strategy?: PaymentStrategy;
-  }) => {
-    const { paymentMethods } = usePaymentMethods();
-  
-    const { total, tip, agreeToDonate, updateAgreeToDonate } = useRoundUp(
-      amount,
-      strategy
-    );
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <PaymentMethods options={paymentMethods} />
-        <DonationCheckbox
-          onChange={updateAgreeToDonate}
-          checked={agreeToDonate}
-          content={formatCheckboxLabel(agreeToDonate, tip, strategy)}
-        />
-        <button>{formatButtonLabel(strategy, total)}</button>
-      </div>
-    );
-  };
-
-And I then did a bit clean up to extract a few helper functions for generating the labels:
-
-src/utils.ts…
-
-  export const formatCheckboxLabel = (
-    agreeToDonate: boolean,
-    tip: number,
-    strategy: CountryPayment
-  ) => {
-    return agreeToDonate
-      ? "Thanks for your donation."
-      : `I would like to donate ${strategy.currencySign}${tip} to charity.`;
-  };
-
-I hope you have noticed that we’re trying to directly extract non-view code into separate places or abstract new mechanisms to reform it to be more modular.
-
-You can think of it this way: the React view is only one of the consumers of your non-view code. For example, if you would build a new interface - maybe with Vue or even a command line tool - how much code can you reuse with your current implementation?
-
-Push the design a bit further: extract a network client
-
-If I keep this “Separation of Concerns” mindset (for spliting view and non-view logic, or more broadly split different responsibility into its own funciton/class/object), the next step is to do something to relieve the mixing in usePaymentMethods hook.
-
-At the moment, that hook doesn’t have much code. If I add things like error handling and retries, it can easily bloat. Also hooks are a React concept, and you cannot reuse it directly in your next fancy Vue view, right?
-
-src/hooks/usePaymentMethods.ts…
-
-  export const usePaymentMethods = () => {
-    const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(
-      []
-    );
-  
-    useEffect(() => {
-      const fetchPaymentMethods = async () => {
-        const url = "https://online-ordering.com/api/payment-methods";
-  
-        const response = await fetch(url);
-        const methods: RemotePaymentMethod[] = await response.json();
-  
-        setPaymentMethods(convertPaymentMethods(methods));
-      };
-  
-      fetchPaymentMethods();
-    }, []);
-  
-    return {
-      paymentMethods,
-    };
-  };
-
-I have extracted convertPaymentMethods here as a global function. I'd like to move the fetching logic into a separate function so I can use library like React Query to handle all the network-related headaches for me.
-
-src/hooks/usePaymentMethods.ts…
-
-  const fetchPaymentMethods = async () => {
-    const response = await fetch("https://5a2f495fa871f00012678d70.mockapi.io/api/payment-methods?countryCode=AU");
-    const methods: RemotePaymentMethod[] = await response.json();
-  
-    return convertPaymentMethods(methods)
-  }
-
-This small class does two things, fetch and convert. It acts like an Anti-Corruption Layer (or a gateway 1) that can ensure our change to the PaymentMethod structure is limited to a single file. The benefit of this split is that, again, the class can be used whenever needed, even in the backend service, just like the Strategy objects we saw above.
-
-And for the usePaymentMethods hook, the code is pretty simple now:
-
-src/hooks/usePaymentMethods.ts…
-
-  export const usePaymentMethods = () => {
-    const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(
-      []
-    );
-  
-    useEffect(() => {
-      fetchPaymentMethods().then(methods => setPaymentMethods(methods))
-    }, []);
-  
-    return {
-      paymentMethods,
-    };
-  };
-
-And our class diagram is changed into something like the one below. We have most of the code moved into non-view related files that can be used in other places.
-
-Figure 12: More granular split makes the responsibility of each part cleaner
-
-The benefits of having these layers
-
-As demonstrated above, these layers brings us many advantages:
-
-Enhanced maintainability: by separating a component into distinct parts, it is easier to locate and fix defects in specific parts of the code. This can save time and reduce the risk of introducing new bugs while making changes.
-Increased modularity: the layered structure is more modular, which can make it easier to reuse code and build new features. Even in each layer, take views for example, tend to be more composable.
-Enhanced readability: it's much easier to understand and follow the logic of the code. This can be especially helpful for other developers who are reading and working with the code. That's the core of making changes to the codebase.
-Improved scalability: with reduced complixity in each individual module, the application is often more scalable, as it is easier to add new features or make changes without affecting the entire system. This can be especially important for large, complex applications that are expected to evolve over time.
-Migrate to other techstack: if we have to (even very unlikely in most projects), we can replace the view layer without changing the underlying models and logic. All because the domain logic is encapsulated in pure JavaScript (or TypeScript) code and isn't aware of the existence of views.
-Conclusion
-
-Building React application, or a frontend application with React as its view, should not be treated as a new type of software. Most of the patterns and principles for building the traditional user interface still apply. Even the patterns for constructing a headless service in the backend are also valid in the frontend field. We can use layers in the frontend and have the user interface as thin as possible, sink the logic into a supporting model layer, and data access into another.
-
-The benefit of having these layers in frontend applications is that you only need to understand one piece without worrying about others. Also, with the improvement of reusability, making changes to existing code would be relatively more manageable than before.
-
-Acknowledgements
-
-Thanks to Andy Marks and Hannah Bourke for reviewing the draft version and correcting my grammar and language issues.
-
-Thanks to Cam Jackson for the detailed technical review and great suggestions on the article's structure.
-
-Thanks to Martin Fowler, my role model, for guiding me through all the technical details and making it possible to publish the article on this site.
-
-Footnotes
-
-1: Gateway is an object that encapsulates access to an external system or resource. It's useful when you don't want to scatter all the adoption logic into your codebase, and that can be easier to change in one place when the external system changes.
-
-Significant Revisions
-
-© Martin Fowler | Disclosures
+Isso é o oposto do conselho antigo (“comece com vetores, fallback pra keyword”). É: **comece com keyword, e adicione vetor só se sentir falta**. Na maioria dos projetos, você nunca vai sentir.
+
+## Uma implementação de brinquedo em Ruby
+
+Pra deixar concreto. Eis um script Ruby usando o gem [`ruby_llm`](https://github.com/crmne/ruby_llm) (o mesmo do benchmark de ontem) que faz exatamente esse fluxo: grep nos arquivos, carrega os trechos com contexto, manda pro Claude, recebe a resposta. Sem vector DB, sem chunking, sem embedding, sem LangChain.
+
+```ruby
+#!/usr/bin/env ruby
+require "ruby_llm"
+require "open3"
+
+## DOCS_DIR = ARGV[0] || "./docs"
+
+QUERY    = ARGV[1] or abort "uso: ./ask.rb <pasta> <pergunta>"
+
+# 1. Filtro lexical rápido com ripgrep.
+#    -i case insensitive, -l só nomes de arquivo, --type-add cobre md/txt/pdf-extraído.
+def lexical_search(dir, query)
+  terms = query.downcase.scan(/\w{4,}/).uniq.first(8)  # palavras com 4+ letras
+  pattern = terms.join("|")
+  cmd = ["rg", "-l", "-i", "-e", pattern, dir]
+  files, _ = Open3.capture2(*cmd)
+  files.split("\n").reject(&:empty?)
+end
+
+# 2. Carrega os arquivos inteiros (até um teto razoável).
+def load_context(files, max_chars: 600_000)
+  total = 0
+  files.map do |path|
+    body = File.read(path)
+    next if total + body.size > max_chars
+    total += body.size
+    "## #{path}\n\n#{body}\n"
+  end.compact.join("\n---\n")
+end
+
+# 3. Manda pro Claude com a pergunta e os documentos.
+def ask(query, context)
+  chat = RubyLLM.chat(model: "anthropic/claude-sonnet-4-6")
+  prompt = <<~PROMPT
+    Você tem acesso aos documentos abaixo. Responda a pergunta do usuário
+    usando apenas o que está nos documentos. Cite o nome do arquivo nas
+    referências. Se a resposta não estiver nos documentos, diga isso.
+
+    --- DOCUMENTOS ---
+    #{context}
+    --- FIM DOS DOCUMENTOS ---
+
+## Pergunta: #{query}
+
+## PROMPT
+
+## chat.ask(prompt).content
+
+end
+
+## files = lexical_search(DOCS_DIR, QUERY)
+
+abort "nenhum arquivo bateu" if files.empty?
+puts "Encontrei #{files.size} arquivos. Carregando contexto..."
+context = load_context(files)
+puts ask(QUERY, context)
+```
+
+São umas 40 linhas. Sem dependência de Pinecone, sem schema de vector, sem pipeline de re-indexação. Você roda como `./ask.rb ./docs "como configurar o webhook do pagamento"` e pronto.
+
+Esse exemplo aí é one-shot. Você roda, ele responde, acabou. Pra chat de verdade, com várias perguntas em sequência em cima dos mesmos documentos, o desenho muda. Em vez de fazer o `lexical_search` lá no começo e empurrar tudo de uma vez pro contexto, você expõe a busca como tool pro modelo. Aí é o agente que decide quando precisa puxar mais doc, que termo vai procurar, qual arquivo vale a pena abrir inteiro. É assim que o Claude Code funciona, na real: `Glob`, `Grep` e `Read` são tools, e o modelo é quem escolhe a sequência. O `ruby_llm` suporta tool calling, então dá pra fazer a mesma coisa em Ruby. A cara fica mais ou menos assim:
+
+```ruby
+require "ruby_llm"
+require "open3"
+
+DOCS_DIR = "./docs"
+
+## class SearchFiles < RubyLLM::Tool
+
+## description "Procura arquivos cujo conteúdo casa com o padrão dado (regex). Retorna lista de paths."
+
+  param :pattern, desc: "Padrão regex pra busca lexical (case-insensitive)"
+
+## def execute(pattern:)
+
+## out, _ = Open3.capture2("rg", "-l", "-i", "-e", pattern, DOCS_DIR)
+
+## out.split("\n").reject(&:empty?)
+
+## end
+
+end
+
+## class ReadFile < RubyLLM::Tool
+
+## description "Lê o conteúdo completo de um arquivo do projeto."
+
+  param :path, desc: "Caminho relativo do arquivo"
+
+## def execute(path:)
+
+## File.read(path)
+
+  rescue => e
+    "erro: #{e.message}"
+  end
+end
+
+chat = RubyLLM.chat(model: "anthropic/claude-sonnet-4-6")
+            .with_tools(SearchFiles, ReadFile)
+            .with_instructions(<<~SYS)
+              Você responde perguntas sobre os documentos em #{DOCS_DIR}.
+              Use search_files pra encontrar arquivos relevantes e read_file
+              pra ler o conteúdo. Sempre cite o arquivo na resposta.
+            SYS
+
+## loop do
+
+## print "> "
+
+## msg = gets&.chomp
+
+  break if msg.nil? || msg.empty?
+  puts chat.ask(msg).content
+end
+```
+
+O modelo recebe a pergunta, decide se precisa procurar, chama `search_files`, vê o que voltou, decide se precisa abrir algum arquivo, chama `read_file`, e só depois responde. Em pergunta seguinte ele já tem o contexto anterior na sessão e pode pedir mais coisa se precisar. O contexto vai recebendo só o que o modelo pediu, não o despejo inteiro do grep que o exemplo anterior fazia.
+
+A mesma ideia funciona pra banco de dados: troca o `rg` por uma query SQL com `LIKE` ou `tsvector` (full-text do Postgres), carrega as linhas relevantes, joga no contexto. Se você tiver 10k registros num banco interno, isso resolve. Se tiver 10 milhões, aí você começa a precisar de paginação inteligente ou de uma camada de pré-filtragem mais séria. Mas a estrutura mental é a mesma: **filtro burro + leitor inteligente**.
+
+## O ponto que importa
+
+O mais interessante nisso tudo nem é a economia de Pinecone. É que a natureza do gargalo mudou. Em 2023, o gargalo era retrieval: o leitor era pequeno, lento, caro, e você precisava de um retriever esperto pra encher a janela com o mínimo possível. Em 2026, o gargalo é raciocínio sobre contexto bagunçado: o leitor é grande, relativamente rápido, e barato. Aí faz mais sentido um retriever burrão de alta cobertura e deixar o modelo fazer o trabalho pesado.
+
+Quem ainda projeta sistema com a cabeça de 2023 tá pagando caro pra resolver um problema que mudou de forma. RAG não morreu, o “R” ficou mais burro e mais barato, e isso é uma melhoria. Quem vende vector DB não vai te contar, mas é o caminho que a galera mais experiente vem seguindo na surdina.
+
+A próxima onda de aplicação LLM, na minha aposta, vai ser dominada por quem entendeu essa inversão. Stack menor, infraestrutura mais simples, contexto generoso, e muito menos LangChain.
+
+## O que a literatura recente diz
+
+Antes de fechar, fui dar uma olhada no que a galera de pesquisa publicou sobre isso. Achismo de blog nessa área envelhece em três meses, então melhor olhar paper.
+
+O [**Retrieval Augmented Generation or Long-Context LLMs?**](https://arxiv.org/abs/2407.16833), do Google DeepMind, publicado na EMNLP 2024, é o mais citado no debate. A conclusão deles: quando o modelo tem recurso suficiente, long context bate RAG na média de qualidade, mas RAG continua sendo bem mais barato em tokens. Eles propõem o Self-Route, uma abordagem onde o próprio modelo decide se precisa do retrieval ou se manda direto pelo contexto. A economia de tokens é grande e a perda de qualidade é pequena.
+
+Já o [**LaRA**](https://openreview.net/forum?id=CLF25dahgA), apresentado na ICML 2025, é mais comedido. Os autores montaram 2326 casos de teste em quatro tipos de tarefa de QA e três tipos de contexto longo, rodaram em 11 LLMs diferentes, e a conclusão foi: não tem bala de prata. A escolha entre RAG e long context depende do modelo, do tamanho do contexto, do tipo de tarefa e da característica do retrieval. RAG ganha em diálogo e queries genéricas, long context ganha em QA estilo Wikipedia.
+
+O [**Long Context vs. RAG for LLMs: An Evaluation and Revisits**](https://arxiv.org/abs/2501.01880), de janeiro de 2025, é o que mais reforça a tese deste post. Long context costuma bater RAG nos benchmarks de QA, especialmente quando o documento base é estável. Retrieval baseado em sumarização chega perto, e retrieval baseado em chunk fica atrás. Ou seja: o jeito antigo, chunk mais embed mais top-k, é o que sai pior.
+
+Tem que ter no radar também o original [**Lost in the Middle**](https://arxiv.org/abs/2307.03172) (Liu et al., 2023, publicado no TACL em 2024). Foi o paper que mostrou que mesmo modelos com janela grande têm performance dependente da posição da informação relevante. Coisa no começo ou no fim do contexto é encontrada fácil; coisa no meio degrada. Por muito tempo isso foi usado como argumento contra long context, mas o paper é de 2023, com modelos de 2023. Os modelos de hoje, tipo Claude 4.x e Gemini 3.x, lidam muito melhor com a parte do meio. Não é problema resolvido, mas é bem menor do que era.
+
+Pelo lado de retrieval lexical, o [**BEIR**](https://arxiv.org/abs/2104.08663) continua sendo a referência canônica. O resultado clássico é que BM25, lá dos anos 90, segue competitivíssimo em cenário out-of-domain. Os modelos densos só ganham consistentemente quando você tem dados do próprio domínio pra fine-tunar os embeddings. Em cenário zero-shot, que é onde a maioria dos projetos vive, BM25 é difícil de bater sem trabalho pesado.
+
+Pra fechar, o post da [**Anthropic sobre Contextual Retrieval**](https://www.anthropic.com/news/contextual-retrieval), de setembro de 2024, é a peça mais prática da lista. Eles mostram que combinando embedding contextualizado com BM25 contextualizado, dá pra cair de 5.7% pra 2.9% de taxa de falha no top-20. Adicionando reranker, cai pra 1.9%. Detalhe importante: BM25 é peça central do resultado deles, não auxiliar. A leitura correta é “lexical mais vetor mais reranker é a combinação que funciona”. Quem só pode escolher um, escolhe BM25 e ainda chega longe.
+
+Resumindo o que dá pra cravar: a literatura não diz que “RAG morreu”. Diz que long context, quando dá pra usar, costuma vencer em qualidade. Diz que o custo de RAG ainda é o argumento principal a favor dele. Diz que BM25 lexical é bem mais forte do que a propaganda de vector DB faz parecer. E diz que, quando você realmente precisa de retrieval pesado, a combinação robusta é hybrid (lexical mais vetor mais reranker), não vetor puro. Tudo isso bate com o que eu venho defendendo na prática.
+
+## Fontes
+
+- Li, Z. et al. (2024). [Retrieval Augmented Generation or Long-Context LLMs? A Comprehensive Study and Hybrid Approach](https://arxiv.org/abs/2407.16833). EMNLP 2024 Industry Track.
+- Yuan, K. et al. (2025). [LaRA: Benchmarking Retrieval-Augmented Generation and Long-Context LLMs – No Silver Bullet for LC or RAG Routing](https://openreview.net/forum?id=CLF25dahgA). ICML 2025.
+- Yu, T. et al. (2025). [Long Context vs. RAG for LLMs: An Evaluation and Revisits](https://arxiv.org/abs/2501.01880). arXiv:2501.01880.
+- Liu, N. F. et al. (2023). [Lost in the Middle: How Language Models Use Long Contexts](https://arxiv.org/abs/2307.03172). TACL 2024.
+- Thakur, N. et al. (2021). [BEIR: A Heterogenous Benchmark for Zero-shot Evaluation of Information Retrieval Models](https://arxiv.org/abs/2104.08663). NeurIPS Datasets and Benchmarks 2021.
+- Anthropic (2024). [Introducing Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval). Blog técnico.
+- Akita, F. (2026). [O código fonte do Claude Code vazou. O que achamos dentro.](/2026/03/31/codigo-fonte-do-claude-code-vazou-o-que-achamos-dentro/) — minha cobertura do leak, com mais detalhe sobre arquitetura de memória, KAIROS e `autoDream`.

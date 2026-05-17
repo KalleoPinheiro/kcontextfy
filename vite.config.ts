@@ -1,5 +1,6 @@
 import { copyFileSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'path';
+import { build as esbuild } from 'esbuild';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -37,7 +38,17 @@ export default defineConfig({
   plugins: [
     {
       name: 'copy-manifest',
-      closeBundle() {
+      async closeBundle() {
+        await esbuild({
+          entryPoints: [resolve(__dirname, 'src/content/content.ts')],
+          bundle: true,
+          format: 'iife',
+          platform: 'browser',
+          target: 'chrome110',
+          outfile: resolve(__dirname, 'dist/content.js'),
+          external: ['chrome'],
+          legalComments: 'none',
+        });
         mkdirSync(resolve(__dirname, 'dist'), { recursive: true });
         copyFileSync(
           resolve(__dirname, 'src/manifest.json'),

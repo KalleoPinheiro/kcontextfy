@@ -11,25 +11,37 @@ KContextify is a Chrome extension that extracts and converts web content to stru
 ## Data Flow
 
 ```
-Webpage
+Webpage (live DOM)
   ↓
 Content Script (identifier.ts)
   → Detect page type (article/video/generic)
   ↓
 Content Script (extractor.ts)
-  → Wait for content stability (MutationObserver)
+  → Clone document (isolate from live DOM)
+  → Strip UI noise: <style>, <script>, nav, footer, sidebar, ads, etc.
+  → Wait for content stability on clone (MutationObserver)
   → Find best content element (scoring engine)
-  → Extract HTML
+  → Extract HTML from cloned element
+  ↓
+Content Script → Background Service (via chrome.runtime.sendMessage)
   ↓
 Background Service (converter.ts)
-  → Normalize heading hierarchy
-  → Convert HTML → Markdown (Turndown)
-  → Deduplicate links
+  → Strip dangerous tags (regex: <style>, <script>, <noscript>, <link>, <meta>)
+  → Normalize heading hierarchy (no jumps)
+  → Convert HTML → Markdown (Turndown + GFM)
+  → Remove noise: leftover empty links, UI counters, CSS blocks
+  → Promote orphan headings
+  → Fence loose code blocks
   → Generate frontmatter (YAML)
   ↓
-Storage
+Popup / Storage
   → Display in popup / Save to file
 ```
+
+**Safety Notes**:
+- Content extraction happens on **cloned** DOM, never touches live page
+- CSS stripping uses **3-layer defense**: extractor selectors + converter regex + post-process noise removal
+- Service worker (background) has no DOM API → all sanitization has regex fallback
 
 ## Component Details
 
@@ -42,8 +54,22 @@ Storage
 
 **extractor.ts** - Content extraction and dynamic scoring
 - `extractContent()` - Main orchestrator, dispatches by page type
+  - Article: `extractArticleContent()` (best-effort scoring + Readability fallback)
+  - Video: `extractVideoContent()` (metadata only; transcript is V2)
+  - Generic: `extractGenericContent()` (main or body element)
+- `extractArticleContent()` - Clone document → sanitize → score → extract
+  - **Safety**: Clones live DOM first via `cloneNode(true)`; never mutates page
+  - `stripUIElements(clonedDoc)` - Removes nav, footer, aside, ads, comments, dev.to UI
+  - `findBestContentElement(clonedDoc)` - Scores article/main/etc candidates
+  - Fallback: Mozilla Readability on clean clone
 - `waitForContent()` - MutationObserver-based stability detection (1s debounce, 10s max)
-- `findBestContentElement()` - Scores candidate elements (article, main, [role="main"], common classes/IDs)
+- `findBestContentElement(root)` - Scores candidate elements (article, main, [role="main"], common classes/IDs)
+  - Takes optional root parameter (default: document) → supports cloned docs
+- `stripUIElements(root)` - Removes ~40 UI selectors
+  - Tags: style, script, noscript, template, link, meta, svg, iframe
+  - Semantic: nav, footer, header, aside, [role="navigation"], [role="contentinfo"]
+  - Common UI: ads, sidebar, newsletter, comments, related-posts
+  - Site-specific: dev.to modals, billboards, report-abuse
 - `calculateConfidenceScore(node)` - Weighted combination of three scoring modules:
   - **Semantic** (40% weight): role, class, ID attributes; ancestor role inspection
   - **Structural** (30% weight): child count, heading hierarchy, content elements
@@ -52,15 +78,33 @@ Storage
 ### Background Service (`src/background/`)
 
 **converter.ts** - HTML to Markdown conversion and processing
-- `createTurndownService()` - Factory with rules for unwanted tags (script, style, form, iframe), attribute stripping
-- `convertToMarkdown()` - Wrapper around Turndown
-- `processExtractedContent()` - Pipeline:
-  1. Normalize heading hierarchy (no level jumps)
-  2. Convert to Markdown
-  3. Deduplicate reference-style links
-  4. Clean empty elements
-  5. Generate frontmatter
-- `generateFrontmatter()` - YAML header with title, url, type, author, date, image
+- `stripDangerousTags(html)` - Regex pass (pre-parse, service-worker safe)
+  - Strips: `<style>`, `<script>`, `<noscript>`, `<template>`, `<link>`, `<meta>`
+  - Handles multi-line tags via `[\s\S]*?` (non-greedy)
+- `sanitizeHtml(html)` - DOM-based cleanup (if DOMParser available)
+  - Applies `stripDangerousTags()` first (for service worker context)
+  - Falls back to regex-only if DOMParser undefined
+  - Uses selectors from NOISE_SELECTORS const
+- `createTurndownService()` - Factory with rules for unwanted tags:
+  - Drop: script, style, noscript, form, iframe, svg, button, input, select, textarea
+  - Drop empty anchors (subheading permalinks that wreck headings)
+  - Clean headings: preserve text, strip anchor/span children
+- `convertToMarkdown(html)` - Two-stage pipeline:
+  1. Sanitize HTML (triple defense: regex + DOMParser + Turndown rules)
+  2. Apply Turndown with GFM plugin
+- `processExtractedContent()` - Full processing pipeline:
+  1. Sanitize + convert HTML → Markdown
+  2. Clean empty elements (trim whitespace, deduplicate blank lines)
+  3. Remove noise (empty refs, UI counters, CSS blocks, lang toggles)
+  4. Promote orphan headings (short lines between content → ## Title)
+  5. Fence loose code blocks (detect code patterns, wrap in ``` ```)
+  6. Final cleanup (empty elements again)
+  7. Generate frontmatter (YAML)
+- `removeNoise(markdown)` - Post-process filters:
+  - Empty link refs: `[][]`, `[]()`
+  - UI noise: "123 likes", "Skip to content", "PT | EN"
+  - CSS blocks: `:root{...}`, `@media{...}`
+- `generateFrontmatter()` - YAML header: title, url, type, author, date (frontmatter object)
 
 ### Popup UI (`src/popup/`)
 
@@ -153,6 +197,19 @@ Unit tests focus on scoring engine:
 
 See [TESTING.md](TESTING.md) for coverage and test patterns.
 
+## Build & Bundling
+
+**Content Script Bundling (content.js)**:
+- Vite builds as ES module entry (src/content/content.ts)
+- Post-build: esbuild wraps in IIFE (single-file, no imports)
+- Hook: vite.config.ts `closeBundle()` → esbuild format: 'iife'
+- Result: Chrome MV3 can load content.js as classic script (no `import` statement)
+
+**Background Service (background.js)**:
+- Built as ES module (manifest.json: `"type": "module"`)
+- Chrome 100+ supports ES modules in service workers
+- Vite bundles with esbuild, outputs proper imports
+
 ---
 
-*Last updated: 2026-05-16. Status: active*
+*Last updated: 2026-05-17. Status: active. DOM cloning + 3-layer CSS defense fully implemented.*

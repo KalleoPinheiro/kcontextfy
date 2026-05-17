@@ -1,1041 +1,496 @@
- 
-Refactoring
-Agile
-Architecture
-About
-Thoughtworks
-Table of Contents
-Modularizing React Applications with Established UI Patterns
+---
+title: "I Ran Hermes Agent on the Same Task for 7 Days. The Skill File on Day 7 Looked Nothing Like Day 1."
+url: "https://dev.to/sreejit_/i-ran-hermes-agent-on-the-same-task-for-7-days-the-skill-file-on-day-7-looked-nothing-like-day-1-2oa8"
+type: "article"
+author: "@"
+---
 
-Established UI patterns are often underutilized in the frontend development world, despite their proven effectiveness in solving complex problems in UI design. This article explores the application of established UI building patterns to the React world, with a refactoring journey code example to showcase the benefits. The emphasis is placed on how layering architecture can help organize the React application for improved responsiveness and future changes.
+Hermes Agent Challenge Submission
 
-16 February 2023
+*This is a submission for the [Hermes Agent Challenge](https://dev.to/challenges/hermes-agent-2026-05-15)*
 
-Juntao QIU | 邱俊涛
+* * *
 
-Juntao is a software developer at Thoughtworks with a passion for test-driven development, refactoring, and clean code. He enjoys sharing his knowledge and helping other developers grow.
+> **TL;DR:** Hermes Agent is the only open-source agent that gets better at *your specific work* without you touching anything. I ran it on the same task every day for 7 days and watched the skill file evolve from a 12-line rough draft to a 60-line intelligent procedure. Here's every step, every output, and why this changes what I think an AI agent should be.
 
-Juntao is also an author, having published several books on the field. Additionally, he is a blogger, YouTuber, and content creator to help people write better code.
+* * *
 
-APPLICATION ARCHITECTURE
+Every AI agent framework you've used starts from zero.
 
-FRONT-END
+LangChain, AutoGen, CrewAI — they all do real work. Multi-step planning, tool use, parallelism. But you close the terminal, restart the session, and the agent that spent twenty minutes figuring out exactly how to handle your data structure has forgotten all of it. You're back to square one.
 
-CONTENTS
-React is a humble library for building views
-Welcome to the real world React application
-Apart from the user interface
-The evolution of a React application
-Single Component Application
-Multiple Component Application
-State management with hooks
-Business models emerged
-Layered frontend application
-Introduction of the Payment feature
-The problem with the initial implementation
-The split of view and non-view code
-Split the view by extracting sub component
-Data modelling to encapsulate logic
-The benefits of the new structure
-New requirement: donate to a charity
-Internal state: agree to donation
-Extract a hook to the rescue
-More changes about round-up logic
-The shotgun surgery problem
-Polymorphism to the rescue
-Push the design a bit further: extract a network client
-The benefits of having these layers
-Conclusion
+We've been so focused on what agents can *do* that nobody's asking what they *keep*.
 
-While I've put React application, there isn't such a thing as React application. I mean, there are front-end applications written in JavaScript or TypeScript that happen to use React as their views. However, I think it's not fair to call them React applications, just as we wouldn't call a Java EE application JSP application.
+That's the question Hermes Agent is actually answering. And after running it daily for a week, I can tell you: the difference between Day 1 and Day 7 isn't marginal. It's a different agent.
 
-More often than not, people squeeze different things into React components or hooks to make the application work. This type of less-organised structure isn't a problem if the application is small or mostly without much business logic. However, as more business logic shifted to front-end in many cases, this everything-in-component shows problems. To be more specific, the effort of understanding such type of code is relatively high, as well as the increased risk to code modification.
+* * *
 
-In this article, I would like to discuss a few patterns and techniques you can use to reshape your “React application” into a regular one, and only with React as its view (you can even swap these views into another view library without too much efforts).
+## The Setup
 
-The critical point here is you should analyse what role each part of the code is playing within an application (even on the surface, they might be packed in the same file). Separate view from no-view logic, split the no-view logic further by their responsibilities and place them in the right places.
+I run a web app that deals with a lot of research — new models, framework updates, open-source releases. Every morning I was manually scanning HackerNews, arXiv, and GitHub to find the 3-4 things that actually mattered. 30-40 minutes. Boring, repetitive, and I kept missing things because I can only read so fast.
 
-The benefit of this separation is that it allows you to make changes in the underlying domain logic without worrying too much about the surface views, or vice versa. Also, it can increase the reusability of the domain logic in other places as they are not coupled to any other parts.
+That's the perfect task for this experiment: give Hermes the same job every day, watch what it learns, and see whether Day 7 is actually better than Day 1.
 
-React is a humble library for building views
+**My hardware:** Windows 11, GTX 1650 (4GB VRAM), 16GB RAM — same machine from my Gemma 4 tests.
 
-It's easy to forget that React, at its core, is a library (not a framework) that helps you build the user interface.
+**My setup:**  
 
-In this context, it is emphasized that React is a JavaScript library that concentrates on a particular aspect of web development, namely UI components, and offers ample freedom in terms of the design of the application and its overall structure.
+```
+# Install (Linux/macOS/WSL2 — I used WSL2)
+curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
 
-A JavaScript library for building user interfaces
+# Launch
+hermes
+```
 
--- React Homepage
+That's it. No YAML. No environment variables. No dependency hell. The installer asks you for a model provider — I pointed it at OpenRouter with a Nous Hermes model. First prompt came back in under 10 seconds.
 
-It may sound pretty straightforward. But I have seen many cases where people write the data fetching, reshaping logic right in the place where it's consumed. For example, fetching data inside a React component, in the useEffect block right above the rendering, or performing data mapping/transforming once they got the response from the server side.
+**The task I gave it:**  
 
-useEffect(() => {
-  fetch("https://address.service/api")
-    .then((res) => res.json())
-    .then((data) => {
-      const addresses = data.map((item) => ({
-        street: item.streetName,
-        address: item.streetAddress,
-        postcode: item.postCode,
-      }));
+```
+Every morning at 8AM, find the 3 most relevant AI and developer 
+news items from the past 24 hours. I care about open-source models, 
+agent frameworks, and local inference. Skip anything that's just hype 
+with no technical substance. Post the results to my Telegram.
+```
 
-      setAddresses(addresses);
-    });
-}, []);
+One instruction. Then I walked away.
 
-// the actual rendering...
+* * *
 
-Perhaps because there is yet to be a universal standard in the frontend world, or it's just a bad programming habit. Frontend applications should not be treated too differently from regular software applications. In the frontend world, you still use separation of concerns in general to arrange the code structure. And all the proven useful design patterns still apply.
+## Day 1: Raw and Messy
 
-Welcome to the real world React application
+The first run came back with 6 items. Two were from TechCrunch articles with zero technical depth — the kind of "AI is changing everything" pieces that don't tell you anything. One was a GitHub release that was three weeks old. One was actually good: a new quantization method for running LLMs on consumer hardware.
 
-Most developers were impressed by React's simplicity and the idea that a user interface can be expressed as a pure function to map data into the DOM. And to a certain extent, it IS.
+The Telegram message was long, unformatted, no clear hierarchy. The summaries were one-sentence restatements of the headline, not actual analysis.
 
-But developers start to struggle when they need to send a network request to a backend or perform page navigation, as these side effects make the component less “pure”. And once you consider these different states (either global state or local state), things quickly get complicated, and the dark side of the user interface emerges.
+Here's what the skill file looked like after Day 1:  
 
-Apart from the user interface
+```
+# skill: daily_ai_digest
+version: 1.0
+created: 2026-05-09
 
-React itself doesn’t care much about where to put calculation or business logic, which is fair as it’s only a library for building user interfaces. And beyond that view layer, a frontend application has other parts as well. To make the application work, you will need a router, local storage, cache at different levels, network requests, 3rd-party integrations, 3rd-party login, security, logging, performance tuning, etc.
+## task
+Search for AI and developer news. Summarize and post to Telegram.
 
-With all this extra context, trying to squeeze everything into React components or hooks is generally not a good idea. The reason is mixing concepts in one place generally leads to more confusion. At first, the component sets up some network request for order status, and then there is some logic to trim off leading space from a string and then navigate somewhere else. The reader must constantly reset their logic flow and jump back and forth from different levels of details.
+## steps
+1. Search "AI news today"
+2. Search "developer tools news"
+3. Collect top results
+4. Write summary
+5. Post to Telegram
 
-Packing all the code into components may work in small applications like a Todo or one-form application. Still, the efforts to understand such application will be significant once it reaches a certain level. Not to mention adding new features or fixing existing defects.
+## tools_used
+- web_search
+- telegram_send
 
-If we could separate different concerns into files or folders with structures, the mental load required to understand the application would be significantly reduced. And you only have to focus on one thing at a time. Luckily, there are already some well-proven patterns back to the pre-web time. These design principles and patterns are explored and discussed well to solve the common user interface problems - but in the desktop GUI application context.
+## notes
+First run. Results were broad. User wants 3 items.
+```
 
-Martin Fowler has a great summary of the concept of view-model-data layering.
+Twelve lines. Basically a placeholder. But it exists — and that matters, because this is what Hermes builds on.
 
-On the whole I've found this to be an effective form of modularization for many applications and one that I regularly use and encourage. It's biggest advantage is that it allows me to increase my focus by allowing me to think about the three topics (i.e., view, model, data) relatively independently.
+* * *
 
--- Martin Fowler
+## Day 2: First Sign of Learning
 
-Layered architectures have been used to cope the challenges in large GUI applications, and certainly we can use these established patterns of front-end organization in our “React applications”.
+I didn't touch anything.
 
-The evolution of a React application
+Day 2 came back with 5 items. The TechCrunch pieces were gone. Hermes had started pulling from Hacker News and GitHub Releases — better signal sources. One item was still irrelevant (a VentureBeat funding round that mentioned AI in the headline), but the other four were legitimately useful.
 
-For small or one-off projects, you might find that all logic is just written inside React components. You may see one or only a few components in total. The code looks pretty much like HTML, with only some variable or state used to make the page “dynamic”. Some might send requests to fetch data on useEffect after the components render.
+The summaries were longer. They had context, not just restatements. One of them noted that a specific library update was a breaking change — information that wasn't in the headline but was in the release notes. Hermes had gone deeper.
 
-As the application grows, and more and more code are added to codebase. Without a proper way to organise them, soon the codebase will turn into unmaintainable state, meaning that even adding small features can be time-consuming as developers need more time to read the code.
+The Telegram format was cleaner. Numbered list. Each item had a title, a one-sentence summary, and a link.
 
-So I’ll list a few steps that can help to relief the maintainable problem. It generally require a bit more efforts, but it will pay off to have the structure in you application. Let’s have a quick review of these steps to build front-end applications that scale.
+Skill file, end of Day 2:  
 
-Single Component Application
+```
+# skill: daily_ai_digest
+version: 1.2
+created: 2026-05-09
+last_improved: 2026-05-10
 
-It can be called pretty much a Single Component Application:
+## task
+Find and deliver 3 relevant AI/dev news items. 
+User wants technical depth, not hype.
 
-Figure 1: Single Component Application
+## search_strategy
+queries:
+  - "AI developer tools release site:github.com"
+  - "open source LLM 2026"
+  - "AI news site:news.ycombinator.com"
+source_deprioritize: [techcrunch.com, venturebeat.com]
 
-But soon, you realise one single component requires a lot of time just to read what is going on. For example, there is logic to iterate through a list and generate each item. Also, there is some logic for using 3rd-party components with only a few configuration code, apart from other logic.
+## steps
+1. Run search queries
+2. Score results by technical depth
+3. Select top 3
+4. Format as numbered list with title + summary + link
+5. Post to Telegram
 
-Multiple Component Application
+## tools_used
+- web_search
+- telegram_send
 
-You decided to split the component into several components, with these structures reflecting what’s happening on the result HTML is a good idea, and it helps you to focus on one component at a time.
+## notes
+v1.2: Added source filtering after first run returned low-quality sources.
+Switched to HN and GitHub as primary. Results improved.
+```
+
+It added source filtering on its own. I did not tell it TechCrunch was bad. It inferred it from the task description — "no hype, technical substance" — and encoded that into the skill.
+
+* * *
+
+## Day 4: It Built a Scoring Rubric
+
+This is the day I started paying attention.
+
+The Day 4 Telegram message had something new: a score on each item. `[7/10]` `[9/10]` `[6/10]`. I hadn't asked for scores. Hermes decided scores were useful for the task — probably because "top 3 most relevant" implies there's a ranking, and making that ranking explicit makes the output more useful.
+
+The 9/10 item was genuinely the best thing from that day — a benchmark paper comparing local inference speeds across different quantization methods. Exactly what I care about. The 6/10 item was a borderline include — a framework update that was interesting but not breaking news.
+
+Skill file, end of Day 4:  
+
+```
+# skill: daily_ai_digest
+version: 1.4
+created: 2026-05-09
+last_improved: 2026-05-12
+
+## task
+Find, score, and deliver 3 AI/dev news items.
+Filter: open-source models, agent frameworks, local inference.
+Exclude hype with no technical depth.
+
+## search_strategy
+queries:
+  - "open source LLM release site:github.com OR huggingface.co"
+  - "agentic AI framework update -ChatGPT -Gemini"
+  - "local inference benchmark 2026"
+  - "AI developer tools release this week"
+source_priority: [arxiv.org, github.com, huggingface.co, news.ycombinator.com]
+source_deprioritize: [techcrunch.com, venturebeat.com, medium.com]
+
+## scoring_rubric
+score each item 0-10:
+  technical_depth: 0-4  (has code/benchmarks/architecture details)
+  novelty: 0-3          (not covered in previous runs)
+  relevance: 0-3        (matches user focus: OSS/local inference)
+threshold: include if score >= 6
+
+## output_format
+**[Score: X/10]** Title
+> One sentence: what it is and why it matters.
+Link
+
+## tools_used
+- web_search
+- telegram_send
+
+## notes
+v1.2: Added source filtering.
+v1.4: Added scoring rubric. User task implies ranking — made it explicit.
+      Added novelty check to avoid repeating items from prior runs.
+```
 
-Figure 2: Multiple Component Application
+Three things happened autonomously between Day 2 and Day 4:
 
-And as your application grows, apart from the view, there are things like sending network requests, converting data into different shapes for the view to consume, and collecting data to send back to the server. And having this code inside components doesn’t feel right as they’re not really about user interfaces. Also, some components have too many internal states.
+1.  It built a formal scoring rubric with sub-dimensions
+2.  It added negative query filters (`-ChatGPT -Gemini`) to reduce noise
+3.  It started checking previous runs for novelty — so it wouldn't resurface the same items
 
-State management with hooks
+I didn't write a single line of prompt engineering.
 
-It’s a better idea to split this logic into a separate places. Luckily in React, you can define your own hooks. This is a great way to share these state and the logic of whenever states change.
+* * *
 
-Figure 3: State management with hooks
+## Day 7: The Skill That Won
 
-That’s awesome! You have a bunch of elements extracted from your single component application, and you have a few pure presentational components and some reusable hooks that make other components stateful. The only problem is that in hooks, apart from the side effect and state management, some logic doesn’t seem to belong to the state management but pure calculations.
+By Day 7, the digest was good enough that I was reading it before my coffee instead of after my manual scan. That's the bar — useful enough to change behavior.
 
-Business models emerged
+Here's the full Day 7 skill file:  
 
-So you’ve started to become aware that extracting this logic into yet another place can bring you many benefits. For example, with that split, the logic can be cohesive and independent of any views. Then you extract a few domain objects.
+```
+# skill: daily_ai_digest
+version: 1.7
+created: 2026-05-09
+last_improved: 2026-05-15
 
-These simple objects can handle data mapping (from one format to another), check nulls and use fallback values as required. Also, as the amount of these domain objects grows, you find you need some inheritance or polymorphism to make things even cleaner. Thus you applied many design patterns you found helpful from other places into the front-end application here.
+## task
+Find, score, and deliver the 3 most relevant AI/developer news items 
+for the day. Focus: open-source models, agent frameworks, local inference.
+Exclude hype with no technical depth. Deliver to Telegram at 08:00 IST.
 
-Figure 4: Business models
+## search_strategy
+queries:
+  - "open source LLM release site:github.com OR huggingface.co"
+  - "agentic AI framework update -ChatGPT -Gemini -GPT"
+  - "local inference benchmark OR quantization 2026"
+  - "AI developer tools release this week site:news.ycombinator.com"
+  - "arxiv LLM agent reasoning 2026"
+source_priority: [arxiv.org, github.com, huggingface.co, news.ycombinator.com]
+source_deprioritize: [techcrunch.com, venturebeat.com, medium.com, forbes.com]
+dedup_window: 7d  # skip items covered in the last 7 days
 
-Layered frontend application
+## scoring_rubric
+score each item 0-10:
+  technical_depth: 0-4
+    4 = has code, benchmarks, or architecture details
+    2 = has methodology but no reproducible artifacts  
+    0 = opinion/news with no technical content
+  novelty: 0-3
+    3 = not covered in past 7 days
+    1 = follow-up to prior story, adds new info
+    0 = repeat
+  relevance: 0-3
+    3 = directly about OSS models, agents, or local inference
+    2 = adjacent (cloud AI but with OSS implications)
+    0 = enterprise SaaS, no OSS angle
+threshold: score >= 6 to include
+fallback: if < 3 items qualify, lower threshold to 5
 
-The application keeps evolving, and then you find some patterns emerge. There are a bunch of objects that do not belong to any user interface, and they also don’t care about whether the underlying data is from remote service, local storage or cache. And then, you want to split them into different layers. Here is a detailed explanation about the layer splitting Presentation Domain Data Layering.
+## output_format
+**[Score: X/10]** Title
+> Summary: what it is. Why it matters for open-source/local AI specifically.
+🔗 [Link](url)
 
-Figure 5: Layered frontend application
+## delivery
+platform: telegram
+timing: 08:00 IST
+max_items: 3
+failure_alert: if run fails, send "digest failed: {error}" to Telegram
 
-The above evolution process is a high-level overview, and you should have a taste of how you should structure your code or at least what the direction should be. However, there will be many details you need to consider before applying the theory in your application.
+## improvement_log
+v1.0: Broad search. Too many results. No scoring.
+v1.2: Added source filtering. Removed TechCrunch/VentureBeat. -60% noise.
+v1.4: Added scoring rubric. Added novelty check vs previous runs.
+v1.6: Added IST timezone scheduling. Added Forbes to deprioritize list.
+v1.7: Added fallback threshold. Improved arxiv query. Added failure alert.
+      Scoring rubric now has sub-criterion descriptions for consistency.
+```
 
-In the following sections, I’ll walk you through a feature I extracted from a real project to demonstrate all the patterns and design principles I think useful for big frontend applications.
+**Day 1 skill file: 12 lines.**  
 
-Introduction of the Payment feature
+**Day 7 skill file: 62 lines.**
 
-I’m using an oversimplified online ordering application as a starting point. In this application, a customer can pick up some products and add them to the order, and then they will need to select one of the payment methods to continue.
+The Day 7 version has a search strategy I wouldn't have written myself — the `-GPT -Gemini` exclusion that cuts proprietary model noise, the 7-day deduplication window, the fallback threshold so the agent always delivers something even on slow news days, the failure alert so I know if it breaks.
 
-Figure 6: Payment section
+I didn't write any of that. I didn't review the skill file during the week. Hermes built it, improved it, and documented its own reasoning in the improvement log.
 
-These payment method options are configured on the server side, and customers from different countries may see other options. For example, Apple Pay may only be popular in some countries. The radio buttons are data-driven - whatever is fetched from the backend service will be surfaced. The only exception is that when no configured payment methods are returned, we don’t show anything and treat it as “pay in cash” by default.
+* * *
 
-For simplicity, I’ll skip the actual payment process and focus on the Payment component. Let’s say that after reading the React hello world doc and a couple of stackoverflow searches, you came up with some code like this:
+## How the Learning Loop Actually Works
 
-src/Payment.tsx…
+The reason this is possible — and the reason most other frameworks can't do it — is an architecture Nous Research calls the closed learning loop. Four components:
 
-  export const Payment = ({ amount }: { amount: number }) => {
-    const [paymentMethods, setPaymentMethods] = useState<LocalPaymentMethod[]>(
-      []
-    );
-  
-    useEffect(() => {
-      const fetchPaymentMethods = async () => {
-        const url = "https://online-ordering.com/api/payment-methods";
-  
-        const response = await fetch(url);
-        const methods: RemotePaymentMethod[] = await response.json();
-  
-        if (methods.length > 0) {
-          const extended: LocalPaymentMethod[] = methods.map((method) => ({
-            provider: method.name,
-            label: `Pay with ${method.name}`,
-          }));
-          extended.push({ provider: "cash", label: "Pay in cash" });
-          setPaymentMethods(extended);
-        } else {
-          setPaymentMethods([]);
-        }
-      };
-  
-      fetchPaymentMethods();
-    }, []);
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <div>
-          {paymentMethods.map((method) => (
-            <label key={method.provider}>
-              <input
-                type="radio"
-                name="payment"
-                value={method.provider}
-                defaultChecked={method.provider === "cash"}
-              />
-              <span>{method.label}</span>
-            </label>
-          ))}
-        </div>
-        <button>${amount}</button>
-      </div>
-    );
-  };
-
-The code above is pretty typical. You might have seen it in the get started tutorial somewhere. And it's not necessary bad. However, as we mentioned above, the code has mixed different concerns all in a single component and makes it a bit difficult to read.
-
-The problem with the initial implementation
-
-The first issue I would like to address is how busy the component is. By that, I mean Payment deals with different things and makes the code difficult to read as you have to switch context in your head as you read.
-
-In order to make any changes you have to comprehend how to initialise network request , how to map the data to a local format that the component can understand , how to render each payment method , and the rendering logic for Payment component itself .
-
-src/Payment.tsx…
-
-  export const Payment = ({ amount }: { amount: number }) => {
-    const [paymentMethods, setPaymentMethods] = useState<LocalPaymentMethod[]>(
-      []
-    );
-  
-    useEffect(() => {
-      const fetchPaymentMethods = async () => {
-        const url = "https://online-ordering.com/api/payment-methods";
-  
-        const response = await fetch(url);
-        const methods: RemotePaymentMethod[] = await response.json();
-  
-        if (methods.length > 0) {
-          const extended: LocalPaymentMethod[] = methods.map((method) => ({
-            provider: method.name,
-            label: `Pay with ${method.name}`,
-          }));
-          extended.push({ provider: "cash", label: "Pay in cash" });
-          setPaymentMethods(extended);
-        } else {
-          setPaymentMethods([]);
-        }
-      };
-  
-      fetchPaymentMethods();
-    }, []);
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <div>
-          {paymentMethods.map((method) => (
-            <label key={method.provider}>
-              <input
-                type="radio"
-                name="payment"
-                value={method.provider}
-                defaultChecked={method.provider === "cash"}
-              />
-              <span>{method.label}</span>
-            </label>
-          ))}
-        </div>
-        <button>${amount}</button>
-      </div>
-    );
-  };
-
-It's not a big problem at this stage for this simple example. However, as the code gets bigger and more complex, we'll need to refactoring them a bit.
-
-It’s good practice to split view and non-view code into separate places. The reason is, in general, views are changing more frequently than non-view logic. Also, as they deal with different aspects of the application, separating them allows you to focus on a particular self-contained module that is much more manageable when implementing new features.
-
-The split of view and non-view code
-
-In React, we can use a custom hook to maintain state of a component while keeping the component itself more or less stateless. We can use Extract Function to create a function called usePaymentMethods (the prefix use is a convention in React to indicate the function is a hook and handling some states in it):
-
-src/Payment.tsx…
-
-  const usePaymentMethods = () => {
-    const [paymentMethods, setPaymentMethods] = useState<LocalPaymentMethod[]>(
-      []
-    );
-  
-    useEffect(() => {
-      const fetchPaymentMethods = async () => {
-        const url = "https://online-ordering.com/api/payment-methods";
-  
-        const response = await fetch(url);
-        const methods: RemotePaymentMethod[] = await response.json();
-  
-        if (methods.length > 0) {
-          const extended: LocalPaymentMethod[] = methods.map((method) => ({
-            provider: method.name,
-            label: `Pay with ${method.name}`,
-          }));
-          extended.push({ provider: "cash", label: "Pay in cash" });
-          setPaymentMethods(extended);
-        } else {
-          setPaymentMethods([]);
-        }
-      };
-  
-      fetchPaymentMethods();
-    }, []);
-  
-    return {
-      paymentMethods,
-    };
-  };
-
-This returns a paymentMethods array (in type LocalPaymentMethod) as internal state and is ready to be used in rendering. So the logic in Payment can be simplified as:
-
-src/Payment.tsx…
-
-  export const Payment = ({ amount }: { amount: number }) => {
-    const { paymentMethods } = usePaymentMethods();
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <div>
-          {paymentMethods.map((method) => (
-            <label key={method.provider}>
-              <input
-                type="radio"
-                name="payment"
-                value={method.provider}
-                defaultChecked={method.provider === "cash"}
-              />
-              <span>{method.label}</span>
-            </label>
-          ))}
-        </div>
-        <button>${amount}</button>
-      </div>
-    );
-  };
-
-This helps relieve the pain in the Payment component. However, if you look at the block for iterating through paymentMethods, it seems a concept is missing here. In other words, this block deserves its own component. Ideally, we want each component to focus on, only one thing.
-
-Split the view by extracting sub component
-
-Also, if we can make a component a pure function - meaning given any input, the output is certain - that would help us a lot in writing tests, understanding the code and even reusing the component elsewhere. After all, the smaller a component, the more likely it will be reused.
-
-We can use Extract Function again (maybe we should call it “Extract Component”, but in React, a component is a function anyway).
-
-src/Payment.tsx…
-
-  const PaymentMethods = ({
-    paymentMethods,
-  }: {
-    paymentMethods: LocalPaymentMethod[];
-  }) => (
-    <>
-      {paymentMethods.map((method) => (
-        <label key={method.provider}>
-          <input
-            type="radio"
-            name="payment"
-            value={method.provider}
-            defaultChecked={method.provider === "cash"}
-          />
-          <span>{method.label}</span>
-        </label>
-      ))}
-    </>
-  );
-
-The Payment component can use the PaymentMethods directly and thus be simplified as below:
-
-src/Payment.tsx…
-
-  export const Payment = ({ amount }: { amount: number }) => {
-    const { paymentMethods } = usePaymentMethods();
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <PaymentMethods paymentMethods={paymentMethods} />
-        <button>${amount}</button>
-      </div>
-    );
-  };
-
-Note that PaymentMethods is a pure function (a pure component) that doesn’t have any state. It’s basically a string formatting function.
-
-Data modelling to encapsulate logic
-
-So far, the changes we have made are all about splitting view and non-view code into different places. It works well. The hook handles data fetching and reshaping. Both Payment and PaymentMethods are relatively small and easy to understand.
-
-However, if you look closely, there is still room for improvement. To start with, in the pure function component PaymentMethods, we have a bit of logic to check if a payment method should be checked by default:
-
-src/Payment.tsx…
-
-  const PaymentMethods = ({
-    paymentMethods,
-  }: {
-    paymentMethods: LocalPaymentMethod[];
-  }) => (
-    <>
-      {paymentMethods.map((method) => (
-        <label key={method.provider}>
-          <input
-            type="radio"
-            name="payment"
-            value={method.provider}
-            defaultChecked={method.provider === "cash"}
-          />
-          <span>{method.label}</span>
-        </label>
-      ))}
-    </>
-  );
-
-These test statements in a view can be considered a logic leak, and gradually they can be scatted in different places and make modification harder.
-
-Another point of potential logic leakage is in the data conversion where we fetch data:
-
-src/Payment.tsx…
-
-  const usePaymentMethods = () => {
-    const [paymentMethods, setPaymentMethods] = useState<LocalPaymentMethod[]>(
-      []
-    );
-  
-    useEffect(() => {
-      const fetchPaymentMethods = async () => {
-        const url = "https://online-ordering.com/api/payment-methods";
-  
-        const response = await fetch(url);
-        const methods: RemotePaymentMethod[] = await response.json();
-  
-        if (methods.length > 0) {
-          const extended: LocalPaymentMethod[] = methods.map((method) => ({
-            provider: method.name,
-            label: `Pay with ${method.name}`,
-          }));
-          extended.push({ provider: "cash", label: "Pay in cash" });
-          setPaymentMethods(extended);
-        } else {
-          setPaymentMethods([]);
-        }
-      };
-  
-      fetchPaymentMethods();
-    }, []);
-  
-    return {
-      paymentMethods,
-    };
-  };
-
-Note the anonymous function inside methods.map does the conversion silently, and this logic, along with the method.provider === “cash” above can be extracted into a class.
-
-We could have a class PaymentMethod with the data and behaviour centralised into a single place:
-
-src/PaymentMethod.ts…
-
-  class PaymentMethod {
-    private remotePaymentMethod: RemotePaymentMethod;
-  
-    constructor(remotePaymentMethod: RemotePaymentMethod) {
-      this.remotePaymentMethod = remotePaymentMethod;
-    }
-  
-    get provider() {
-      return this.remotePaymentMethod.name;
-    }
-  
-    get label() {
-      if(this.provider === 'cash') {
-        return `Pay in ${this.provider}`
-      }
-      return `Pay with ${this.provider}`;
-    }
-  
-    get isDefaultMethod() {
-      return this.provider === "cash";
-    }
-  }
-
-With the class, I can define the default cash payment method:
-
-const payInCash = new PaymentMethod({ name: "cash" });
-
-And during the conversion - after the payment methods are fetched from the remote service - I can construct the PaymentMethod object in-place. Or even extract a small function called convertPaymentMethods:
-
-src/usePaymentMethods.ts…
-
-  const convertPaymentMethods = (methods: RemotePaymentMethod[]) => {
-    if (methods.length === 0) {
-      return [];
-    }
-  
-    const extended: PaymentMethod[] = methods.map(
-      (method) => new PaymentMethod(method)
-    );
-    extended.push(payInCash);
-  
-    return extended;
-  };
-
-Also, in the PaymentMethods component, we don’t use the method.provider === “cash”to check anymore, and instead call the getter:
-
-src/PaymentMethods.tsx…
-
-  export const PaymentMethods = ({ options }: { options: PaymentMethod[] }) => (
-    <>
-      {options.map((method) => (
-        <label key={method.provider}>
-          <input
-            type="radio"
-            name="payment"
-            value={method.provider}
-            defaultChecked={method.isDefaultMethod}
-          />
-          <span>{method.label}</span>
-        </label>
-      ))}
-    </>
-  );
-
-Now we’re restructuring our Payment component into a bunch of smaller parts that work together to finish the work.
-
-Figure 7: Refactored Payment with more parts that can be composed easily
-
-The benefits of the new structure
-Having a class encapsulates all the logic around a payment method. It’s a domain object and doesn’t have any UI-related information. So testing and potentially modifying logic here is much easier than when embedded in a view.
-The new extracted component PaymentMethods is a pure function and only depends on a domain object array, which makes it super easy to test and reuse elsewhere. We might need to pass in a onSelect callback to it, but even in that case, it’s a pure function and doesn’t have to touch any external states.
-Each part of the feature is clear. If a new requirement comes, we can navigate to the right place without reading all the code.
-
-I have to make the example in this article sufficiently complex so that many patterns can be extracted. All these patterns and principles are there to help simplify our code's modifications.
-
-New requirement: donate to a charity
-
-Let’s examine the theory here with some further changes to the application. The new requirement is that we want to offer an option for customers to donate a small amount of money as a tip to a charity along with their order.
-
-For example, if the order amount is $19.80, we ask if they would like to donate $0.20. And if a user agrees to donate it, we’ll show the total number on the button.
-
-Figure 8: Donate to a charity
-
-Before we make any changes, let's have a quick look at the current code structure. I prefer have different parts in their folder so it's easy for me to navigate when it grows bigger.
-
-      src
-      ├── App.tsx
-      ├── components
-      │   ├── Payment.tsx
-      │   └── PaymentMethods.tsx
-      ├── hooks
-      │   └── usePaymentMethods.ts
-      ├── models
-      │   └── PaymentMethod.ts
-      └── types.ts
-      
-
-App.tsx is the main entry, it uses Payment component, and Payment uses PaymentMethods for rendering different payment options. The hook usePaymentMethods is responsible for fetching data from remote service and then convert it to a PaymentMethod domain object that is used to hold label and the isDefaultChecked flag.
-
-Internal state: agree to donation
-
-To make these changes in Payment, we need a boolean state agreeToDonate to indicate whether a user selected the checkbox on the page.
-
-src/Payment.tsx…
-
-  const [agreeToDonate, setAgreeToDonate] = useState<boolean>(false);
-
-  const { total, tip } = useMemo(
-    () => ({
-      total: agreeToDonate ? Math.floor(amount + 1) : amount,
-      tip: parseFloat((Math.floor(amount + 1) - amount).toPrecision(10)),
-    }),
-    [amount, agreeToDonate]
-  );
-
-The function Math.floor will round the number down so we can get the correct amount when the user selects agreeToDonate, and the difference between the rounded-up value and the original amount will be assigned to tip.
-
-And for the view, the JSX will be a checkbox plus a short description:
-
-src/Payment.tsx…
-
-  return (
-    <div>
-      <h3>Payment</h3>
-      <PaymentMethods options={paymentMethods} />
-      <div>
-        <label>
-          <input
-            type="checkbox"
-            onChange={handleChange}
-            checked={agreeToDonate}
-          />
-          <p>
-            {agreeToDonate
-              ? "Thanks for your donation."
-              : `I would like to donate $${tip} to charity.`}
-          </p>
-        </label>
-      </div>
-      <button>${total}</button>
-    </div>
-  );
-
-With these new changes, our code starts handling multiple things again. It’s essential to stay alert for potential mixing of view and non-view code. If you find any unnecessary mixing, look for ways to split them.
-
-Note that it's not a set-in-stone rule. Keep things all together nice and tidy for small and cohesive components, so you don't have to look in multiple places to understand the overall behaviour. Generally, you should be aware to avoid the component file growing too big to comprehend.
-
-Extract a hook to the rescue
-
-Here we need an object to calculate the tip and amount, and whenever a user changes their mind, the object should return the updated amount and tip.
-
-So it sounds like we need an object that:
-
-takes the original amount as input
-returns total and tip whenever agreeToDonate changed.
-
-It sounds like a perfect place for a custom hook again, right?
-
-src/hooks/useRoundUp.ts…
-
-  export const useRoundUp = (amount: number) => {
-    const [agreeToDonate, setAgreeToDonate] = useState<boolean>(false);
-  
-    const {total, tip} = useMemo(
-      () => ({
-        total: agreeToDonate ? Math.floor(amount + 1) : amount,
-        tip: parseFloat((Math.floor(amount + 1) - amount).toPrecision(10)),
-      }),
-      [amount, agreeToDonate]
-    );
-  
-    const updateAgreeToDonate = () => {
-      setAgreeToDonate((agreeToDonate) => !agreeToDonate);
-    };
-  
-    return {
-      total,
-      tip,
-      agreeToDonate,
-      updateAgreeToDonate,
-    };
-  };
-
-And in the view, we can call this hook with the initial amount and have all these states defined externally. The updateAgreeToDonate function can update the value in the hook and trigger a re-render.
-
-src/components/Payment.tsx…
-
-  export const Payment = ({ amount }: { amount: number }) => {
-    const { paymentMethods } = usePaymentMethods();
-  
-    const { total, tip, agreeToDonate, updateAgreeToDonate } = useRoundUp(amount);
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <PaymentMethods options={paymentMethods} />
-        <div>
-          <label>
-            <input
-              type="checkbox"
-              onChange={updateAgreeToDonate}
-              checked={agreeToDonate}
-            />
-            <p>{formatCheckboxLabel(agreeToDonate, tip)}</p>
-          </label>
-        </div>
-        <button>${total}</button>
-      </div>
-    );
-  };
-
-Note that We can also extract the message formatting part into the helper function formatCheckboxLabel to simplify the code in component.
-
-const formatCheckboxLabel = (agreeToDonate: boolean, tip: number) => {
-  return agreeToDonate
-    ? "Thanks for your donation."
-    : `I would like to donate $${tip} to charity.`;
-};
-
-And the Payment component can be simplified a lot - the states are now fully managed in hook useRoundUp.
-
-You can imagine a hook as a state machine behind a view whenever some change happens in the UI, say, a checkbox change event. The event will be sent to the state machine to generate a new state, and the new state will trigger a re-render.
-
-So the pattern here is that we should move state management away from a component and try to make it a presentational function (so it can be easily tested and reused just like these humble utility functions). The React hook was designed to share reusable logic from different components, but I find it beneficial even when there is only one use as it helps you to focus on rendering in a component and keeping state and data in hooks.
-
-As the donation checkbox becomes more independent, we can move it into its own pure function component.
-
-src/components/DonationCheckbox.tsx…
-
-  const DonationCheckbox = ({
-    onChange,
-    checked,
-    content,
-  }: DonationCheckboxProps) => {
-    return (
-      <div>
-        <label>
-          <input type="checkbox" onChange={onChange} checked={checked} />
-          <p>{content}</p>
-        </label>
-      </div>
-    );
-  };
-
-While in Payment, thanks to the declarative UI in React, it’s pretty straightforward to read the code like a humble piece of HTML.
-
-src/components/Payment.tsx…
-
-  export const Payment = ({ amount }: { amount: number }) => {
-    const { paymentMethods } = usePaymentMethods();
-  
-    const { total, tip, agreeToDonate, updateAgreeToDonate } = useRoundUp(amount);
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <PaymentMethods options={paymentMethods} />
-        <DonationCheckbox
-          onChange={updateAgreeToDonate}
-          checked={agreeToDonate}
-          content={formatCheckboxLabel(agreeToDonate, tip)}
-        />
-        <button>${total}</button>
-      </div>
-    );
-  };
-
-And at this point, our code structure starts to resemble something like the diagram below. Note how different parts focus on their own tasks and come together to make the process work.
-
-Figure 9: Refactored Payment with donation
-
-More changes about round-up logic
-
-The round-up looks good so far, and as the business expands to other countries, it comes with new requirements. The same logic doesn’t work in Japan market as 0.1 Yen is too small as a donation, and it needs to round up to the nearest hundred for the Japanese currency. And for Denmark, it needs to round up to the nearest tens.
-
-It sounds like an easy fix. All I need is a countryCode passed into the Payment component, right?
-
-<Payment amount={3312} countryCode="JP" />;
-
-And because all of the logic is now defined in the useRoundUp hook, I can also pass the countryCode through to the hook.
-
-const useRoundUp = (amount: number, countryCode: string) => {
-  //...
-
-  const { total, tip } = useMemo(
-    () => ({
-      total: agreeToDonate
-        ? countryCode === "JP"
-          ? Math.floor(amount / 100 + 1) * 100
-          : Math.floor(amount + 1)
-        : amount,
-      //...
-    }),
-    [amount, agreeToDonate, countryCode]
-  );
-  //...
-};
-
-You will notice that the if-else can go on and on as a new countryCode is added in the useEffect block. And for the getTipMessage, we need the same if-else checks as a different country may use other currency sign (instead of a dollar sign by default):
-
-const formatCheckboxLabel = (
-  agreeToDonate: boolean,
-  tip: number,
-  countryCode: string
-) => {
-  const currencySign = countryCode === "JP" ? "¥" : "$";
-
-  return agreeToDonate
-    ? "Thanks for your donation."
-    : `I would like to donate ${currencySign}${tip} to charity.`;
-};
-
-One last thing we also need to change is the currency sign on the button:
-
-<button>
-  {countryCode === "JP" ? "¥" : "$"}
-  {total}
-</button>;
-The shotgun surgery problem
-
-This scenario is the famous “shotgun surgery” smell we see in many places (not particularly in React applications). This essentially says that we'll have to touch several modules whenever we need to modify the code for either a bug fixing or adding a new feature. And indeed, it’s easier to make mistakes with this many changes, especially when your tests are insufficient.
-
-Figure 10: The shotgun surgery smell
-
-As illustrated above, the coloured lines indicate branches of country code checks that cross many files. In views, we’ll need to do separate things for different country code, while in hooks, we’ll need similar branches. And whenever we need to add a new country code, we’ll have to touch all these parts.
-
-For example, if we consider Denmark as a new country the business is expanding to, we’ll end up with code in many places like:
-
-const currencySignMap = {
-  JP: "¥",
-  DK: "Kr.",
-  AU: "$",
-};
-
-const getCurrencySign = (countryCode: CountryCode) =>
-  currencySignMap[countryCode];
-
-One possible solution for the problem of having branches scattered in different places is to use polymorphism to replace these switch cases or table look-up logic. We can use Extract Class on those properties and then Replace Conditional with Polymorphism.
-
-Polymorphism to the rescue
-
-The first thing we can do is examine all the variations to see what need to be extracted into a class. For example, different countries have different currency signs, so getCurrencySign can be extracted into a public interface. Also ,countries might have different round-up algorithms, thus getRoundUpAmount and getTip can go to the interface.
-
-export interface PaymentStrategy {
-  getRoundUpAmount(amount: number): number;
-
-  getTip(amount: number): number;
-}
-
-A concrete implementation of the strategy interface would be like following the code snippet: PaymentStrategyAU.
-
-export class PaymentStrategyAU implements PaymentStrategy {
-  get currencySign(): string {
-    return "$";
-  }
-
-  getRoundUpAmount(amount: number): number {
-    return Math.floor(amount + 1);
-  }
-
-  getTip(amount: number): number {
-    return parseFloat((this.getRoundUpAmount(amount) - amount).toPrecision(10));
-  }
-}
-
-Note here the interface and classes have nothing to do with the UI directly. This logic can be shared in other places in the application or even moved to backend services (if the backend is written in Node, for example).
-
-We could have subclasses for each country, and each has the country specific round-up logic. However, as function is first-class citizen in JavaScript, we can pass in the round-up algorithm into the strategy implementation to make the code less overhead without subclasses. And becaues we have only one implementation of the interface, we can use Inline Class to reduce the single-implementation-interface.
-
-src/models/CountryPayment.ts…
-
-  export class CountryPayment {
-    private readonly _currencySign: string;
-    private readonly algorithm: RoundUpStrategy;
-  
-    public constructor(currencySign: string, roundUpAlgorithm: RoundUpStrategy) {
-      this._currencySign = currencySign;
-      this.algorithm = roundUpAlgorithm;
-    }
-  
-    get currencySign(): string {
-      return this._currencySign;
-    }
-  
-    getRoundUpAmount(amount: number): number {
-      return this.algorithm(amount);
-    }
-  
-    getTip(amount: number): number {
-      return calculateTipFor(this.getRoundUpAmount.bind(this))(amount);
-    }
-  }
-
-As illustrated below, instead of depend on scattered logic in components and hooks, they now only rely on a single class PaymentStrategy. And at runtime, we can easily substitute one instance of PaymentStrategy for another (the red, green and blue square indicates different instances of PaymentStrategy class).
-
-Figure 11: Extract class to encapsulate logic
-
-And the useRoundUp hook, the code could be simplified as:
-
-src/hooks/useRoundUp.ts…
-
-  export const useRoundUp = (amount: number, strategy: PaymentStrategy) => {
-    const [agreeToDonate, setAgreeToDonate] = useState<boolean>(false);
-  
-    const { total, tip } = useMemo(
-      () => ({
-        total: agreeToDonate ? strategy.getRoundUpAmount(amount) : amount,
-        tip: strategy.getTip(amount),
-      }),
-      [agreeToDonate, amount, strategy]
-    );
-  
-    const updateAgreeToDonate = () => {
-      setAgreeToDonate((agreeToDonate) => !agreeToDonate);
-    };
-  
-    return {
-      total,
-      tip,
-      agreeToDonate,
-      updateAgreeToDonate,
-    };
-  };
-
-In the Payment component, we pass the strategy from props through to the hook:
-
-src/components/Payment.tsx…
-
-  export const Payment = ({
-    amount,
-    strategy = new PaymentStrategy("$", roundUpToNearestInteger),
-  }: {
-    amount: number;
-    strategy?: PaymentStrategy;
-  }) => {
-    const { paymentMethods } = usePaymentMethods();
-  
-    const { total, tip, agreeToDonate, updateAgreeToDonate } = useRoundUp(
-      amount,
-      strategy
-    );
-  
-    return (
-      <div>
-        <h3>Payment</h3>
-        <PaymentMethods options={paymentMethods} />
-        <DonationCheckbox
-          onChange={updateAgreeToDonate}
-          checked={agreeToDonate}
-          content={formatCheckboxLabel(agreeToDonate, tip, strategy)}
-        />
-        <button>{formatButtonLabel(strategy, total)}</button>
-      </div>
-    );
-  };
-
-And I then did a bit clean up to extract a few helper functions for generating the labels:
-
-src/utils.ts…
-
-  export const formatCheckboxLabel = (
-    agreeToDonate: boolean,
-    tip: number,
-    strategy: CountryPayment
-  ) => {
-    return agreeToDonate
-      ? "Thanks for your donation."
-      : `I would like to donate ${strategy.currencySign}${tip} to charity.`;
-  };
-
-I hope you have noticed that we’re trying to directly extract non-view code into separate places or abstract new mechanisms to reform it to be more modular.
-
-You can think of it this way: the React view is only one of the consumers of your non-view code. For example, if you would build a new interface - maybe with Vue or even a command line tool - how much code can you reuse with your current implementation?
-
-Push the design a bit further: extract a network client
-
-If I keep this “Separation of Concerns” mindset (for spliting view and non-view logic, or more broadly split different responsibility into its own funciton/class/object), the next step is to do something to relieve the mixing in usePaymentMethods hook.
-
-At the moment, that hook doesn’t have much code. If I add things like error handling and retries, it can easily bloat. Also hooks are a React concept, and you cannot reuse it directly in your next fancy Vue view, right?
-
-src/hooks/usePaymentMethods.ts…
-
-  export const usePaymentMethods = () => {
-    const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(
-      []
-    );
-  
-    useEffect(() => {
-      const fetchPaymentMethods = async () => {
-        const url = "https://online-ordering.com/api/payment-methods";
-  
-        const response = await fetch(url);
-        const methods: RemotePaymentMethod[] = await response.json();
-  
-        setPaymentMethods(convertPaymentMethods(methods));
-      };
-  
-      fetchPaymentMethods();
-    }, []);
-  
-    return {
-      paymentMethods,
-    };
-  };
-
-I have extracted convertPaymentMethods here as a global function. I'd like to move the fetching logic into a separate function so I can use library like React Query to handle all the network-related headaches for me.
-
-src/hooks/usePaymentMethods.ts…
-
-  const fetchPaymentMethods = async () => {
-    const response = await fetch("https://5a2f495fa871f00012678d70.mockapi.io/api/payment-methods?countryCode=AU");
-    const methods: RemotePaymentMethod[] = await response.json();
-  
-    return convertPaymentMethods(methods)
-  }
-
-This small class does two things, fetch and convert. It acts like an Anti-Corruption Layer (or a gateway 1) that can ensure our change to the PaymentMethod structure is limited to a single file. The benefit of this split is that, again, the class can be used whenever needed, even in the backend service, just like the Strategy objects we saw above.
-
-And for the usePaymentMethods hook, the code is pretty simple now:
-
-src/hooks/usePaymentMethods.ts…
-
-  export const usePaymentMethods = () => {
-    const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(
-      []
-    );
-  
-    useEffect(() => {
-      fetchPaymentMethods().then(methods => setPaymentMethods(methods))
-    }, []);
-  
-    return {
-      paymentMethods,
-    };
-  };
-
-And our class diagram is changed into something like the one below. We have most of the code moved into non-view related files that can be used in other places.
-
-Figure 12: More granular split makes the responsibility of each part cleaner
-
-The benefits of having these layers
-
-As demonstrated above, these layers brings us many advantages:
-
-Enhanced maintainability: by separating a component into distinct parts, it is easier to locate and fix defects in specific parts of the code. This can save time and reduce the risk of introducing new bugs while making changes.
-Increased modularity: the layered structure is more modular, which can make it easier to reuse code and build new features. Even in each layer, take views for example, tend to be more composable.
-Enhanced readability: it's much easier to understand and follow the logic of the code. This can be especially helpful for other developers who are reading and working with the code. That's the core of making changes to the codebase.
-Improved scalability: with reduced complixity in each individual module, the application is often more scalable, as it is easier to add new features or make changes without affecting the entire system. This can be especially important for large, complex applications that are expected to evolve over time.
-Migrate to other techstack: if we have to (even very unlikely in most projects), we can replace the view layer without changing the underlying models and logic. All because the domain logic is encapsulated in pure JavaScript (or TypeScript) code and isn't aware of the existence of views.
-Conclusion
-
-Building React application, or a frontend application with React as its view, should not be treated as a new type of software. Most of the patterns and principles for building the traditional user interface still apply. Even the patterns for constructing a headless service in the backend are also valid in the frontend field. We can use layers in the frontend and have the user interface as thin as possible, sink the logic into a supporting model layer, and data access into another.
-
-The benefit of having these layers in frontend applications is that you only need to understand one piece without worrying about others. Also, with the improvement of reusability, making changes to existing code would be relatively more manageable than before.
-
-Acknowledgements
-
-Thanks to Andy Marks and Hannah Bourke for reviewing the draft version and correcting my grammar and language issues.
-
-Thanks to Cam Jackson for the detailed technical review and great suggestions on the article's structure.
-
-Thanks to Martin Fowler, my role model, for guiding me through all the technical details and making it possible to publish the article on this site.
-
-Footnotes
-
-1: Gateway is an object that encapsulates access to an external system or resource. It's useful when you don't want to scatter all the adoption logic into your codebase, and that can be easier to change in one place when the external system changes.
-
-Significant Revisions
-
-© Martin Fowler | Disclosures
+**1\. Skills**
+
+After each successful run, Hermes compiles the trajectory into a skill — a structured, versioned procedure stored as a file on your machine. The skill is readable (it's markdown), editable, shareable (compatible with [agentskills.io](https://agentskills.io)), and most importantly, evolvable. Hermes loads the existing skill at the start of each run, executes it, observes the result, and updates the skill if it found a better way.
+
+A LangChain agent runs the same code every time. A Hermes skill runs better code every time.
+
+**2\. Persistent Memory**
+
+FTS5 full-text search across all past sessions, with LLM summarization for cross-session recall. The deduplication in my digest skill — "skip items from the past 7 days" — comes from this. Hermes searched memory, found a pattern (user doesn't want repeated items), and encoded the fix into the skill.
+
+**3\. User Modeling**
+
+Hermes integrates [Honcho](https://github.com/plastic-labs/honcho) for dialectic user modeling — a continuously updated inference about your preferences. This is how it learned "open-source focus" and "no hype" from one sentence of initial instruction, and kept refining that over the week.
+
+**4\. Autonomous Nudges**
+
+The agent periodically decides what's worth remembering without being told. The `dedup_window: 7d` parameter in the Day 7 skill? That came from a nudge — Hermes noticed it was retrieving items it had already surfaced, flagged the pattern, and embedded a fix.
+
+* * *
+
+## The Framework Comparison Nobody Is Having
+
+Most agent framework comparisons are feature lists. Tool support? ✅ Multi-step planning? ✅ Parallel agents? ✅
+
+That comparison misses the dimension that actually matters over weeks of real use: **what does the agent keep, and who owns it?**
+
+Here's the honest breakdown:
+
+| Framework | Memory Model | Skill/Learning System | Who Owns Accumulated Intelligence |
+| --- | --- | --- | --- |
+| **LangChain / LangGraph** | You build it | None built-in | You (in your code/prompts) |
+| **AutoGen** | Conversation context | None built-in | You (in your config) |
+| **CrewAI** | Session-scoped | None built-in | You (in your role definitions) |
+| **Hermes Agent** | Persistent cross-session | Built-in, self-improving | You (on your machine, MIT) |
+| **OpenAI Assistants** | Platform-managed | None built-in | OpenAI (on their servers) |
+
+LangChain is the most widely deployed and has the largest ecosystem — if you need a specific integration, it's there. But everything accumulates in *your* code. The agent itself is always a blank slate. You are the memory layer.
+
+AutoGen's multi-agent conversation model is genuinely interesting for debate-style reasoning — Planner talks to Executor talks to Critic, and the conversation is the state. It works well for tasks where explicit agent dialogue is valuable. Same ceiling: no cross-session learning.
+
+CrewAI's role-based abstraction maps well onto business workflows with stable, defined outputs. Best when you know exactly what roles you need. Same ceiling.
+
+The ceiling is identical across all three: **session ten with LangChain/AutoGen/CrewAI is identical to session one.** The agent hasn't learned your preferences, hasn't refined its procedures, hasn't built a working theory of your use case. The maturity lives in your wrapper code. The agent itself stays naive.
+
+Hermes bets on a different model. The agent accumulates across sessions. The skill file on Day 7 reflects 7 days of observed outcomes. You own all of it — MIT licensed, stored on your machine, readable text files. If Nous Research disappeared tomorrow, your skills still run.
+
+* * *
+
+## Where I'd Push Back
+
+Hermes is genuinely impressive after a week. It's also genuinely early in some ways.
+
+**The learning loop requires a capable model.** Skills are only as good as the reasoning that generates them. I used a Nous Hermes model via OpenRouter and results were excellent. If you're using a weaker endpoint, the skills it writes will reflect that.
+
+**LangChain and LangGraph have a vastly larger ecosystem.** If you need a specific vector store adapter, a custom evaluation framework, or fine-grained observability into every reasoning step — LangGraph is better suited. Hermes makes tradeoffs to deliver the learning loop. Those tradeoffs mean some things are less configurable.
+
+**The memory system has edge cases.** Stale preferences can accumulate. If you told Hermes "I prefer X" three months ago and your preference changed, you need to correct it explicitly. The memory doesn't auto-expire. There's active work on making memory management more transparent, but it's not fully there yet.
+
+**It's a research project at production scale.** The GitHub repo is active, the Discord community is engaged, and the documentation is solid. But you will hit edge cases. You will occasionally see a skill degrade instead of improve. The right mental model is "powerful and evolving," not "stable and mature."
+
+None of these killed the experiment. But you should know what you're signing up for.
+
+* * *
+
+## Who Should Actually Use This
+
+**Choose Hermes Agent when:**
+
+-   You have recurring tasks where session-to-session improvement creates compounding value
+-   You're a solo developer or small team that can't maintain a custom memory architecture
+-   You want the agent to improve without you manually encoding every lesson learned
+-   You want to own what the agent accumulates — readable, portable, MIT licensed files on your machine
+
+**Choose LangChain / LangGraph when:**
+
+-   You need maximum ecosystem breadth and integration options
+-   You have engineering resources to build and maintain custom memory and state layers
+-   You need fine-grained observability and control over every agent decision
+
+**Choose AutoGen when:**
+
+-   Multi-agent deliberation adds value — tasks where watching agents debate improves quality
+-   The workflow benefits from visible, auditable agent-to-agent reasoning
+
+**Choose CrewAI when:**
+
+-   Your workflow maps onto stable, defined roles
+-   The output structure is predictable and you want a business-legible abstraction
+
+* * *
+
+## Getting Started
+
+Install in 60 seconds:  
+
+```
+# Linux / macOS / WSL2
+curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1 | iex
+
+# Android (Termux) — same curl command, auto-detects
+```
+
+Run it:  
+
+```
+hermes
+```
+
+Set up Telegram delivery (optional but worth it):  
+
+```
+# Tell Hermes in plain English:
+"Connect to Telegram and send me a message when tasks complete"
+# It walks you through the bot token setup conversationally
+```
+
+Configure a recurring task:  
+
+```
+"Every morning at 8AM, [your task]. Post results to Telegram."
+# Hermes parses this into a cron job and registers it.
+# No cron syntax. No webhook configuration. Just English.
+```
+
+Then walk away. Come back on Day 7 and read your skill file.
+
+**Useful links:**
+
+-   [Hermes Agent Docs](https://hermes-agent.nousresearch.com/docs/)
+-   [GitHub Repo](https://github.com/NousResearch/hermes-agent) (MIT License)
+-   [Quickstart Video](https://www.youtube.com/watch?v=R3YOGfTBcQg)
+-   [Skills Hub](https://agentskills.io) — community-shared skills
+-   [Discord](https://discord.gg/NousResearch)
+
+* * *
+
+## Final Take
+
+The AI agent space has a specific failure mode: things that look impressive in a 15-minute demo and feel identical after three weeks of real use. Every agent can complete a task in a single session. That's not the bar anymore.
+
+The bar is: does the agent get better at *your* work without you doing the maintenance work of manually encoding every improvement?
+
+Day 1 Hermes gave me 6 unfiltered results, no scoring, no format.  
+
+Day 7 Hermes gave me 3 scored, deduplicated, source-filtered, IST-timed, failure-alerted items — with a reasoning trail showing exactly how it got there.
+
+I wrote one sentence of instruction on Day 1 and nothing after that.
+
+That's not a feature. That's a different kind of tool. And it's available right now, free, MIT licensed, on whatever hardware is sitting on your desk.
+
+Pull it. Give it something you do every day. Then read the skill file on Day 7.
+
+* * *
+
+*Tested on Windows 11 / WSL2 with a GTX 1650 (4GB VRAM) and 16GB RAM. Model: Nous Hermes via OpenRouter. All skill files shown are from actual Hermes runs. Hermes Agent is built by [Nous Research](https://nousresearch.com) — MIT licensed.*
+
+*What's the first recurring task you'd hand off? Drop it in the comments — I'm curious what skill files look like across different use cases after a week.*
+
+For further actions, you may consider blocking this person and/or [reporting abuse](/report-abuse)
+
+[![profile](https://media2.dev.to/dynamic/image/width=64,height=64,fit=cover,gravity=auto,format=auto/https%3A%2F%2Fdev-to-uploads.s3.amazonaws.com%2Fuploads%2Forganization%2Fprofile_image%2F140%2F9639a040-3c27-4b99-b65a-85e100016d3c.png)
+
+MongoDB
+
+](/mongodb)Promoted
+
+-   [What's a billboard?](/billboards)
+-   [Manage preferences](/settings/customization#sponsors)
+
+* * *
+
+-   [Report billboard](/report-abuse?billboard=263164)
+
+## Build fast on MongoDB Atlas without the fear of outgrowing.
+
+Don't let your database dictate your speed. With MongoDB Atlas, the same document model you use for your MVP handles global scale across AWS, Azure, and Google Cloud. Start free and stay fast as you grow.
+
+[Start Free](https://www.mongodb.com/cloud/atlas/lp/try3?utm_campaign=display_dev.to-broad_pl_flighted_atlas_tryatlaslp_prosp_gic-null_ww-all_dev_dv-all_eng_leadgen&utm_source=dev.to&utm_medium=display&utm_content=prototype&bb=263164)
+
+Once suspended, sreejit\_ will not be able to comment or publish posts until their suspension is removed.
+
+Note:
+
+Once unsuspended, sreejit\_ will be able to comment and publish posts again.
+
+Note:
+
+Once unpublished, all posts by sreejit\_ will become hidden and only accessible to themselves.
+
+If sreejit\_ is not suspended, they can still re-publish their posts from their dashboard.
+
+Note:
+
+Once unpublished, this post will become invisible to the public and only accessible to Sreejit Pradhan.
+
+They can still re-publish the post if they are not suspended.
+
+Thanks for keeping DEV Community safe. Here is what you can do to flag sreejit\_:
+
+ Make all posts by sreejit\_ less visible
+
+sreejit\_ consistently posts content that violates DEV Community's code of conduct because it is harassing, offensive or spammy.
+
+[Report other inappropriate conduct](javascript:void\(0\);)
+
+Unflagging sreejit\_ will restore default visibility to their posts.
+
+! ! ! ! !

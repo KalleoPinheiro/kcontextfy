@@ -2,9 +2,9 @@ export const CONFIDENCE_THRESHOLD = 0.5;
 export const DEFAULT_WAIT_TIME = 2000;
 export const MIN_WORD_COUNT = 100;
 
-export const GEMINI_API_ENDPOINT = 'https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-lite:generateContent';
-export const GEMINI_TIMEOUT_MS = 5000;
-export const GEMINI_DEFAULT_QUOTA = 10;
+export const GEMINI_API_ENDPOINT = 'https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash:generateContent';
+export const GEMINI_TIMEOUT_MS = 60000;
+export const GEMINI_DEFAULT_QUOTA = 50;
 export const GEMINI_CACHE_TTL_DAYS = 30;
 
 export const ARTICLE_META_SELECTORS = [

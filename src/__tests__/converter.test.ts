@@ -25,11 +25,9 @@ describe('converter', () => {
       expect(md).toContain('**bold text**');
     });
 
-    it('converts links to markdown (reference-style)', () => {
+    it('converts links to markdown (inline-style)', () => {
       const md = convertToMarkdown('<a href="https://example.com">Example</a>');
-      // T5: Links now use reference-style [text][1]
-      expect(md).toContain('[Example][1]');
-      expect(md).toContain('https://example.com');
+      expect(md).toContain('[Example](https://example.com)');
     });
 
     it('handles empty HTML', () => {
