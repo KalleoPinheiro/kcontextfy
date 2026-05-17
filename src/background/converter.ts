@@ -14,12 +14,12 @@ export function createTurndownService(options?: Partial<ConversionOptions>): Tur
 
   // Remove unwanted tags (script, style, noscript, form, iframe)
   const unwantedTags = ['script', 'style', 'noscript', 'form', 'iframe'];
-  unwantedTags.forEach((tag) => {
+  for (const tag of unwantedTags) {
     td.addRule(tag, {
       filter: (node) => node.nodeName.toLowerCase() === tag,
       replacement: () => '',
     });
-  });
+  }
 
   // Strip data-* and on* attributes (event handlers)
   td.addRule('stripAttributes', {
@@ -33,9 +33,11 @@ export function createTurndownService(options?: Partial<ConversionOptions>): Tur
     replacement: (content, node) => {
       const element = (node as Element).cloneNode(true) as HTMLElement;
       // Remove data-* and on* attributes
-      Array.from(element.attributes)
-        .filter((attr) => attr.name.startsWith('data-') || attr.name.startsWith('on'))
-        .forEach((attr) => element.removeAttribute(attr.name));
+      for (const attr of Array.from(element.attributes).filter(
+        (attr) => attr.name.startsWith('data-') || attr.name.startsWith('on')
+      )) {
+        element.removeAttribute(attr.name);
+      }
       return td.turndown(element);
     },
   });
@@ -77,7 +79,7 @@ function normalizeHeadingHierarchy(html: string): string {
   const headings = Array.from(doc.querySelectorAll('h1, h2, h3, h4, h5, h6'));
   let minLevel = 1;
 
-  headings.forEach((heading) => {
+  for (const heading of headings) {
     const currentLevel = Number.parseInt(heading.tagName[1], 10);
 
     if (currentLevel > minLevel + 1) {
@@ -91,7 +93,7 @@ function normalizeHeadingHierarchy(html: string): string {
     } else {
       minLevel = currentLevel;
     }
-  });
+  }
 
   return doc.body?.innerHTML || html;
 }

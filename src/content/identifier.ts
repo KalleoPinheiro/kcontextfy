@@ -157,13 +157,13 @@ export function getMetaTags(): Record<string, string> {
   const metas = document.querySelectorAll('meta');
   const result: Record<string, string> = {};
 
-  metas.forEach((meta) => {
+  for (const meta of Array.from(metas)) {
     const name = meta.getAttribute('name') || meta.getAttribute('property');
     const content = meta.getAttribute('content');
     if (name && content) {
       result[name] = content;
     }
-  });
+  }
 
   return result;
 }
